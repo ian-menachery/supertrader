@@ -180,7 +180,8 @@ class TestPipelineSmoke:
         assert (out.metrics_path.parent / "manifest.json").exists()
         assert out.tear_sheet_path.exists()
         assert out.manifest.status == "ok"
-        assert out.manifest.git_dirty is True  # we passed allow_dirty=True
+        # git_dirty is whatever the actual tree state is; we don't assert it
+        # here because the developer running this test may have a clean tree.
         # SQLite manifest row matches the on-disk JSON.
         sqlite_row = ParquetStore(data_dir).get_run_manifest("smoke-e2e-test")
         assert sqlite_row is not None
