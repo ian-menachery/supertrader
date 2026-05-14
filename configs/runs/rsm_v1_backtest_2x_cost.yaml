@@ -1,0 +1,20 @@
+# RSM v1 with slippage costs doubled — cost-sensitivity probe.
+#
+# Same data, same strategy, same windows as rsm_v1_backtest.yaml. Only
+# `slippage_bps_base` and `slippage_impact_coeff_bps` are doubled to test
+# whether the strategy's verdict survives a worse-but-still-plausible
+# small-cap execution environment. Commission is NOT scaled — commissions
+# are real and don't double when you're uncertain about spread/impact.
+#
+# Decision rule (per docs/known-limitations.md #3): if 2x-cost test Sharpe
+# is still > 0.8, claim "tradeable." Otherwise the strategy is
+# cost-sensitive and the next move is to tune slippage assumptions
+# against real fills (Week 7 paper trading) before drawing conclusions.
+
+extends: ./rsm_v1_backtest.yaml
+run_id: rsm-v1-backtest-2x-cost
+
+backtest:
+  costs:
+    slippage_bps_base: 6.0           # 2x of base.yaml's 3.0
+    slippage_impact_coeff_bps: 20.0  # 2x of base.yaml's 10.0

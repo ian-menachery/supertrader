@@ -1,0 +1,17 @@
+# RSM v1 with slippage costs tripled — pessimistic cost-sensitivity probe.
+#
+# Mirrors rsm_v1_backtest_2x_cost.yaml but with 3x slippage instead of 2x.
+# If even the 3x-cost run shows a positive (post-fees) test Sharpe, the
+# strategy is robust to nearly any plausible cost model. If 3x is much
+# worse than 1x but 2x is still tradeable, that's useful information for
+# sizing position-cap aggressiveness in W7 paper trading.
+#
+# As with the 2x variant, commission is NOT scaled.
+
+extends: ./rsm_v1_backtest.yaml
+run_id: rsm-v1-backtest-3x-cost
+
+backtest:
+  costs:
+    slippage_bps_base: 9.0           # 3x of base.yaml's 3.0
+    slippage_impact_coeff_bps: 30.0  # 3x of base.yaml's 10.0
