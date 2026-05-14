@@ -20,7 +20,7 @@ from __future__ import annotations
 import hashlib
 import sqlite3
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -28,6 +28,14 @@ import polars as pl
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
+
+
+# Maps source_id -> column name that carries the as-of timestamp for PIT filtering.
+# Adding a new source means registering it here too.
+TIMESTAMP_COLUMN_FOR_SOURCE: dict[str, str] = {
+    "yfinance.prices.daily": "date",
+    "arctic_shift.posts": "created_utc",
+}
 
 
 SCHEMA_SQL = """
@@ -40,6 +48,60 @@ CREATE TABLE IF NOT EXISTS source_ingests (
   PRIMARY KEY (source_id, partition_key)
 );
 CREATE INDEX IF NOT EXISTS idx_source_ingests_source ON source_ingests(source_id);
+
+-- Universe snapshots: which tickers belonged to a given universe at a given date.
+CREATE TABLE IF NOT EXISTS universe_snapshots (
+  snapshot_id    TEXT NOT NULL,
+  as_of_date     TEXT NOT NULL,
+  ticker         TEXT NOT NULL,
+  market_cap_usd REAL,
+  sector         TEXT,
+  PRIMARY KEY (snapshot_id, as_of_date, ticker)
+);
+
+-- Run manifests: the reproducibility ledger. Populated by the backtest engine in Week 4.
+CREATE TABLE IF NOT EXISTS run_manifests (
+  run_id          TEXT PRIMARY KEY,
+  config_path     TEXT NOT NULL,
+  config_hash     TEXT NOT NULL,
+  git_sha         TEXT NOT NULL,
+  python_version  TEXT NOT NULL,
+  started_at      TEXT NOT NULL,
+  ended_at        TEXT,
+  status          TEXT NOT NULL,
+  data_hashes     TEXT NOT NULL
+);
+
+-- Holdout-touch ledger. The UNIQUE constraint on config_hash is the forcing function:
+-- one holdout evaluation per config_hash, ever (until scripts/reset_holdout_lock.py runs).
+CREATE TABLE IF NOT EXISTS holdout_touches (
+  run_id      TEXT NOT NULL,
+  config_hash TEXT NOT NULL UNIQUE,
+  touched_at  TEXT NOT NULL,
+  FOREIGN KEY (run_id) REFERENCES run_manifests(run_id)
+);
+
+-- Manual patches over data-source-reported corporate actions.
+CREATE TABLE IF NOT EXISTS corp_action_overrides (
+  ticker      TEXT NOT NULL,
+  ex_date     TEXT NOT NULL,
+  action_type TEXT NOT NULL CHECK (action_type IN ('split', 'dividend')),
+  ratio       REAL,
+  amount      REAL,
+  source_note TEXT,
+  PRIMARY KEY (ticker, ex_date, action_type)
+);
+
+-- Signal cache: lookup table from (signal_id, fingerprint) to the parquet path.
+CREATE TABLE IF NOT EXISTS signal_cache (
+  signal_id    TEXT NOT NULL,
+  fingerprint  TEXT NOT NULL,
+  date_start   TEXT NOT NULL,
+  date_end     TEXT NOT NULL,
+  parquet_path TEXT NOT NULL,
+  computed_at  TEXT NOT NULL,
+  PRIMARY KEY (signal_id, fingerprint, date_start, date_end)
+);
 """
 
 
@@ -190,3 +252,51 @@ class ParquetStore:
         if row is None:
             return None
         return (int(row[0]), str(row[1]), str(row[2]))
+
+    def record_universe_snapshot(
+        self,
+        snapshot_id: str,
+        as_of: date,
+        entries: list[tuple[str, float | None, str | None]],
+    ) -> None:
+        """Insert `(ticker, market_cap_usd, sector)` rows into `universe_snapshots`.
+
+        Idempotent via `INSERT OR REPLACE` on the composite PK.
+        """
+        as_of_iso = as_of.isoformat()
+        with self._connect() as conn:
+            conn.executemany(
+                "INSERT OR REPLACE INTO universe_snapshots "
+                "(snapshot_id, as_of_date, ticker, market_cap_usd, sector) "
+                "VALUES (?, ?, ?, ?, ?)",
+                [(snapshot_id, as_of_iso, t, mc, s) for (t, mc, s) in entries],
+            )
+
+
+class PITStoreView:
+    """A point-in-time view over a `ParquetStore`.
+
+    Every `scan(source_id)` returns a `LazyFrame` filtered to rows with
+    the source's timestamp column ≤ `as_of`. The timestamp column is looked up
+    in `TIMESTAMP_COLUMN_FOR_SOURCE`. For `Datetime` columns the comparison
+    is cast to `Date` so date-level filtering works uniformly.
+
+    Satisfies `supertrader.signals.base.PointInTimeStore` via duck typing.
+    """
+
+    def __init__(self, store: ParquetStore, as_of: date) -> None:
+        self._store = store
+        self.as_of = as_of
+
+    def scan(self, source_id: str) -> pl.LazyFrame:
+        ts_col = TIMESTAMP_COLUMN_FOR_SOURCE.get(source_id)
+        if ts_col is None:
+            available = ", ".join(sorted(TIMESTAMP_COLUMN_FOR_SOURCE.keys())) or "<empty>"
+            msg = (
+                f"Source '{source_id}' has no registered timestamp column. "
+                f"Add it to TIMESTAMP_COLUMN_FOR_SOURCE. Available: {available}"
+            )
+            raise KeyError(msg)
+        lazy = self._store.scan(source_id)
+        # Cast to Date so we accept both Date and Datetime source columns.
+        return lazy.filter(pl.col(ts_col).cast(pl.Date) <= pl.lit(self.as_of))

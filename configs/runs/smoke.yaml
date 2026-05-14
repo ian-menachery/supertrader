@@ -1,0 +1,29 @@
+# Smoke run config used by tests and the verification flow.
+# Demonstrates `extends:` inheritance — backtest costs + universe filters come
+# from base.yaml; this file adds the dates, sources, signal, strategy, and
+# execution slots that a complete RunConfig needs.
+
+extends: ../base.yaml
+run_id: smoke-v1
+
+data_sources:
+  - type: yfinance.prices.daily
+  - type: arctic_shift.posts
+
+signals:
+  - type: reddit_sentiment
+    name: sent_smoke
+    params: {}
+
+strategy:
+  type: mean_reversion
+  signals: [sent_smoke]
+
+backtest:
+  start: 2024-01-01
+  end: 2024-12-31
+  train_end: 2024-06-30
+  test_end: 2024-09-30
+
+execution:
+  type: backtest

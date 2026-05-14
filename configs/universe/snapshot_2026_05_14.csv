@@ -1,0 +1,35 @@
+ticker,name,sector,market_cap_usd,adv_usd
+AAPL,Apple Inc.,Technology,3500000000000,15000000000
+MSFT,Microsoft Corp.,Technology,3200000000000,12000000000
+NVDA,NVIDIA Corp.,Technology,2800000000000,25000000000
+GOOGL,Alphabet Inc.,Communication Services,2000000000000,8000000000
+AMZN,Amazon.com Inc.,Consumer Cyclical,1900000000000,10000000000
+META,Meta Platforms Inc.,Communication Services,1300000000000,7000000000
+TSLA,Tesla Inc.,Consumer Cyclical,800000000000,12000000000
+JPM,JPMorgan Chase & Co.,Financial Services,650000000000,2500000000
+V,Visa Inc.,Financial Services,580000000000,2000000000
+JNJ,Johnson & Johnson,Healthcare,440000000000,1800000000
+PG,Procter & Gamble Co.,Consumer Defensive,400000000000,1500000000
+DIS,The Walt Disney Co.,Communication Services,180000000000,2200000000
+AMD,Advanced Micro Devices Inc.,Technology,250000000000,5000000000
+NFLX,Netflix Inc.,Communication Services,290000000000,3500000000
+INTC,Intel Corp.,Technology,140000000000,4000000000
+PLTR,Palantir Technologies Inc.,Technology,55000000000,1800000000
+F,Ford Motor Co.,Consumer Cyclical,48000000000,800000000
+GM,General Motors Co.,Consumer Cyclical,55000000000,750000000
+GME,GameStop Corp.,Consumer Cyclical,7000000000,400000000
+AMC,AMC Entertainment Holdings Inc.,Communication Services,2500000000,250000000
+HOOD,Robinhood Markets Inc.,Financial Services,17000000000,600000000
+SOFI,SoFi Technologies Inc.,Financial Services,9500000000,500000000
+RBLX,Roblox Corp.,Communication Services,28000000000,700000000
+SNAP,Snap Inc.,Communication Services,18000000000,800000000
+PINS,Pinterest Inc.,Communication Services,22000000000,400000000
+ROKU,Roku Inc.,Communication Services,12000000000,500000000
+DKNG,DraftKings Inc.,Consumer Cyclical,21000000000,600000000
+COIN,Coinbase Global Inc.,Financial Services,55000000000,1500000000
+MARA,Marathon Digital Holdings Inc.,Financial Services,8000000000,1200000000
+RIVN,Rivian Automotive Inc.,Consumer Cyclical,15000000000,900000000
+LCID,Lucid Group Inc.,Consumer Cyclical,7000000000,300000000
+NIO,NIO Inc.,Consumer Cyclical,11000000000,1100000000
+BB,BlackBerry Ltd.,Technology,2500000000,150000000
+NOK,Nokia Oyj,Technology,22000000000,400000000
