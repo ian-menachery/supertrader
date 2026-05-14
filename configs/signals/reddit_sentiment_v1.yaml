@@ -1,0 +1,18 @@
+# Reddit-sentiment signal v1.
+#
+# Aggregates per-post sentiment from Arctic Shift wallstreetbets posts into a
+# (date, ticker) panel. Scorer is pluggable — see ADR 0006 for the upgrade
+# trigger from VADER to FinBERT.
+
+type: reddit_sentiment
+name: reddit_sentiment_v1
+params:
+  scorer:
+    type: vader
+    params:
+      lexicon_path: configs/sentiment_lexicon.yaml
+  aggregation: score_weighted_mean
+  decay_halflife_hours: 24
+  sources:
+    - arctic_shift.posts
+  blocklist_path: configs/ticker_blocklist.yaml

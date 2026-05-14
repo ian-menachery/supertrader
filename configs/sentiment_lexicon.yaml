@@ -1,0 +1,91 @@
+# Finance-flavoured lexicon overrides for VADER.
+#
+# VADER's default vocabulary treats finance terms naively — "puts" is neutral
+# to it, but in WSB context it's a strong bearish signal. We override the
+# scoring for ~60 high-signal terms.
+#
+# VADER's compound score is in [-1, 1] but its raw lexicon weights are in
+# [-4, 4]. Stay within that band. Values here will pass into
+# `SentimentIntensityAnalyzer.lexicon.update(...)`.
+#
+# Version: this file's contents participate in the VaderScorer.model_version
+# string, so cache invalidation happens automatically when terms are edited.
+
+version: "2026.05.14"
+
+# Strongly bearish
+bagholder: -3.0
+bagholders: -3.0
+puts: -2.5
+bear: -1.5
+bearish: -2.0
+"bear case": -1.5
+"bear market": -2.0
+crash: -2.5
+crashing: -2.5
+"rug pull": -3.5
+"rug pulled": -3.5
+"paper hands": -1.5
+"earnings miss": -3.0
+"missed earnings": -3.0
+overvalued: -1.8
+"fair value below": -1.5
+shorting: -1.8
+shorted: -1.5
+downgrade: -2.0
+downgraded: -2.0
+dumping: -2.0
+dumped: -2.0
+"sell off": -2.0
+"selloff": -2.0
+collapse: -2.8
+plunge: -2.5
+plunged: -2.5
+tanking: -2.5
+
+# Strongly bullish
+calls: 2.0
+bullish: 2.0
+"bull case": 1.5
+"bull market": 2.0
+"to the moon": 3.5
+moon: 2.0
+mooning: 2.5
+"diamond hands": 2.5
+tendies: 2.0
+"short squeeze": 2.5
+squeeze: 1.5
+"squeeze play": 2.0
+"earnings beat": 3.0
+"beat earnings": 3.0
+"crushed earnings": 3.0
+undervalued: 1.8
+upgrade: 2.0
+upgraded: 2.0
+"buy the dip": 2.0
+buying: 1.2
+loaded: 1.5
+loaded up: 1.8
+ripping: 2.0
+ripped: 2.0
+mooner: 1.8
+
+# Context-dependent — treated as mildly directional
+"price target": 0.0
+"price action": 0.0
+volume: 0.0
+volatility: -0.3
+support: 0.5
+resistance: -0.5
+breakout: 1.8
+breakdown: -1.8
+
+# WSB-specific frustration
+"holding bags": -2.5
+"left holding the bag": -3.0
+rekt: -3.0
+"down bad": -2.0
+"fomo'd": -1.0
+"fomo": -0.5
+yolo: 0.5
+yoloed: 0.5

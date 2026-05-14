@@ -71,3 +71,7 @@ data_sources: Registry[object] = Registry("data_sources")
 signals: Registry[object] = Registry("signals")
 strategies: Registry[object] = Registry("strategies")
 execution_adapters: Registry[object] = Registry("execution_adapters")
+
+# Sub-layer registry: SentimentScorer implementations are looked up by string
+# from inside `RedditSentimentSignal`. ADR 0006 makes this the v1 → v2 upgrade hook.
+scorers: Registry[object] = Registry("scorers")

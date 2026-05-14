@@ -184,6 +184,6 @@ class TestSmokeConfigOnDisk:
         assert cfg.run_id == "smoke-v1"
         assert cfg.universe.type == "static"
         assert len(cfg.data_sources) == 2
-        assert cfg.strategy.signals == ["sent_smoke"]
+        assert cfg.strategy.signals == ["reddit_sentiment_v1"]
         # base.yaml provided the universe filters
         assert cfg.universe.max_market_cap_usd == 10_000_000_000.0

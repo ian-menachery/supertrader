@@ -1,0 +1,67 @@
+# Common English words that look like stock tickers. Suppresses bareword
+# false positives like "I love MY car" matching $MY (MyMD Pharmaceuticals).
+#
+# This is the *bareword* blocklist — cashtags ($MY) are still allowed since
+# the $ prefix is strong signal that the author meant the ticker.
+#
+# Maintenance: add entries when you see false positives in the wild. Removing
+# entries is fine but rare — once an English word is on the list, leaving it
+# is almost always the right call.
+
+tickers:
+  - A
+  - ALL
+  - AM
+  - AN
+  - ANY
+  - ARE
+  - AS
+  - AT
+  - BE
+  - BY
+  - CAN
+  - DD       # "due diligence" is the canonical WSB use
+  - DO
+  - EOD      # "end of day"
+  - FAQ
+  - FOMO
+  - FOR
+  - GO
+  - HAS
+  - HE
+  - HOLD
+  - I
+  - IF
+  - IMO
+  - IN
+  - IS
+  - IT
+  - LOW
+  - MY
+  - NEW
+  - NO
+  - NOT
+  - NOW
+  - OF
+  - OK
+  - ON
+  - OR
+  - OUR
+  - OUT
+  - PR
+  - PSA
+  - PT       # "price target"
+  - SO
+  - SUN
+  - TBA
+  - TBD
+  - THE
+  - TO
+  - TV
+  - UP
+  - US
+  - WE
+  - WHO
+  - WHY
+  - YOLO
+  - YOU

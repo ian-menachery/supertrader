@@ -12,12 +12,19 @@ data_sources:
 
 signals:
   - type: reddit_sentiment
-    name: sent_smoke
-    params: {}
+    name: reddit_sentiment_v1
+    params:
+      scorer:
+        type: vader
+        params:
+          lexicon_path: configs/sentiment_lexicon.yaml
+      aggregation: score_weighted_mean
+      decay_halflife_hours: 24
+      sources: [arctic_shift.posts]
 
 strategy:
   type: mean_reversion
-  signals: [sent_smoke]
+  signals: [reddit_sentiment_v1]
 
 backtest:
   start: 2024-01-01

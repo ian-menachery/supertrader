@@ -5,6 +5,7 @@ from supertrader.config.registry import (
     Registry,
     data_sources,
     execution_adapters,
+    scorers,
     signals,
     strategies,
 )
@@ -36,6 +37,7 @@ __all__ = [
     "deep_merge",
     "execution_adapters",
     "load_run_config",
+    "scorers",
     "signals",
     "strategies",
 ]
