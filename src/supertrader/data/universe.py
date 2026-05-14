@@ -23,6 +23,18 @@ if TYPE_CHECKING:
     from supertrader.config.schemas import UniverseConfig
 
 
+# Standard liability text printed atop every backtest tear sheet. Updating it
+# here keeps the wording single-source — ADR 0004 mandates that survivorship
+# bias is acknowledged in writing on every run output. See the upgrade path in
+# ADR 0007 (EODHD subscription or EDGAR-built PIT universe).
+SURVIVORSHIP_WARNING = (
+    "WARNING: Universe is a post-hoc Russell 1000 snapshot. "
+    "Results overstate returns by ~1-3% annually vs. true PIT. "
+    "Acceptable for research; upgrade to EODHD or EDGAR-built PIT when "
+    "test Sharpe > 0.8."
+)
+
+
 @dataclass(frozen=True, slots=True)
 class UniverseEntry:
     """One row in the universe snapshot."""
