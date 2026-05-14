@@ -9,6 +9,7 @@ import pytest
 
 from supertrader.backtest.splits import (
     HoldoutGuard,
+    HoldoutOverrideLog,
     HoldoutTouchedError,
     TrainTestHoldoutSplit,
 )
@@ -115,3 +116,92 @@ class TestHoldoutGuard:
         db = tmp_path / "fresh.sqlite"
         HoldoutGuard(db)
         assert db.exists()
+
+    def test_clear_removes_row_and_permits_retouch(self, tmp_path: Path) -> None:
+        guard = HoldoutGuard(tmp_path / "meta.sqlite")
+        guard.evaluate("run-1", "abc")
+        cleared = guard.clear("abc")
+        assert cleared is not None
+        assert cleared[0] == "run-1"
+        # second touch with same hash now succeeds
+        guard.evaluate("run-2", "abc")
+        assert guard.has_touched("abc")
+
+    def test_clear_unknown_hash_is_idempotent(self, tmp_path: Path) -> None:
+        guard = HoldoutGuard(tmp_path / "meta.sqlite")
+        assert guard.clear("never-evaluated") is None
+
+    def test_clear_empty_hash_raises(self, tmp_path: Path) -> None:
+        guard = HoldoutGuard(tmp_path / "meta.sqlite")
+        with pytest.raises(ValueError, match="config_hash"):
+            guard.clear("")
+
+
+class TestHoldoutOverrideLog:
+    def test_append_writes_one_json_line(self, tmp_path: Path) -> None:
+        log = HoldoutOverrideLog(tmp_path / "overrides.log")
+        log.append(
+            config_hash="abc123",
+            original_run_id="run-1",
+            original_touched_at="2026-05-14T10:00:00+00:00",
+            reason="re-eval after sentiment fix",
+            git_sha="deadbeef" * 5,
+            operator="test",
+        )
+        lines = (tmp_path / "overrides.log").read_text(encoding="utf-8").splitlines()
+        assert len(lines) == 1
+        import json as _json
+
+        record = _json.loads(lines[0])
+        assert record["config_hash"] == "abc123"
+        assert record["reason"] == "re-eval after sentiment fix"
+        assert record["operator"] == "test"
+        assert "timestamp_utc" in record
+
+    def test_append_is_additive(self, tmp_path: Path) -> None:
+        log = HoldoutOverrideLog(tmp_path / "overrides.log")
+        log.append(
+            config_hash="h1",
+            original_run_id="r1",
+            original_touched_at="2026-05-14T10:00:00+00:00",
+            reason="first",
+            git_sha="a" * 40,
+        )
+        log.append(
+            config_hash="h2",
+            original_run_id="r2",
+            original_touched_at="2026-05-15T10:00:00+00:00",
+            reason="second",
+            git_sha="b" * 40,
+        )
+        records = log.read_all()
+        assert len(records) == 2
+        assert records[0]["reason"] == "first"
+        assert records[1]["reason"] == "second"
+
+    def test_append_preserves_unicode_reason(self, tmp_path: Path) -> None:
+        log = HoldoutOverrideLog(tmp_path / "overrides.log")
+        log.append(
+            config_hash="h",
+            original_run_id="r",
+            original_touched_at="2026-05-14T10:00:00+00:00",
+            reason="rerun — Sharpe was wrong by 𝛅",
+            git_sha="c" * 40,
+        )
+        records = log.read_all()
+        assert records[0]["reason"] == "rerun — Sharpe was wrong by 𝛅"
+
+    def test_append_empty_reason_raises(self, tmp_path: Path) -> None:
+        log = HoldoutOverrideLog(tmp_path / "overrides.log")
+        with pytest.raises(ValueError, match="reason"):
+            log.append(
+                config_hash="h",
+                original_run_id="r",
+                original_touched_at="t",
+                reason="",
+                git_sha="a" * 40,
+            )
+
+    def test_read_all_returns_empty_when_no_log(self, tmp_path: Path) -> None:
+        log = HoldoutOverrideLog(tmp_path / "missing.log")
+        assert log.read_all() == []

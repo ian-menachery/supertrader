@@ -19,14 +19,15 @@ holdout twice deliberate and visible.
 
 from __future__ import annotations
 
+import json
+import os
 import sqlite3
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     import pandas as pd
 
     from supertrader.config.schemas import BacktestConfig
@@ -138,3 +139,95 @@ class HoldoutGuard:
         if row is None:
             return None
         return (str(row[0]), str(row[1]))
+
+    def clear(self, config_hash: str) -> tuple[str, str] | None:
+        """Delete the touch row for a config_hash, returning the row if it existed.
+
+        Idempotent: clearing an unknown hash returns None without raising. The
+        return value is `(run_id, touched_at)` of the row that was cleared,
+        intended for callers (like `scripts/reset_holdout_lock.py`) that need
+        to record the override in `data/runs/holdout_overrides.log`.
+        """
+        if not config_hash:
+            msg = "config_hash must be non-empty"
+            raise ValueError(msg)
+        existing = self._existing_touch(config_hash)
+        if existing is None:
+            return None
+        with sqlite3.connect(self.meta_db_path) as conn:
+            conn.execute(
+                "DELETE FROM holdout_touches WHERE config_hash = ?",
+                (config_hash,),
+            )
+            conn.commit()
+        return existing
+
+
+class HoldoutOverrideLog:
+    """Append-only JSON-lines log of holdout-lock overrides.
+
+    Each `append()` writes exactly one JSON object on its own line and fsyncs
+    so a crash mid-write either commits or leaves the file untouched. The
+    `no-holdout-log-edit` pre-commit hook (`.pre-commit-config.yaml`) blocks
+    any direct commits to this file — overrides must come through
+    `scripts/reset_holdout_lock.py`, which then commits with `--no-verify`
+    plus a justification.
+    """
+
+    def __init__(self, log_path: Path) -> None:
+        self.log_path = Path(log_path)
+        self.log_path.parent.mkdir(parents=True, exist_ok=True)
+
+    def append(
+        self,
+        *,
+        config_hash: str,
+        original_run_id: str,
+        original_touched_at: str,
+        reason: str,
+        git_sha: str,
+        operator: str | None = None,
+    ) -> dict[str, str]:
+        """Append one override record. Returns the record dict for caller display."""
+        if not config_hash:
+            msg = "config_hash must be non-empty"
+            raise ValueError(msg)
+        if not reason:
+            msg = "reason must be non-empty — overrides require justification"
+            raise ValueError(msg)
+        record = {
+            "timestamp_utc": datetime.now(tz=UTC).isoformat(),
+            "config_hash": config_hash,
+            "original_run_id": original_run_id,
+            "original_touched_at": original_touched_at,
+            "reason": reason,
+            "git_sha": git_sha,
+            "operator": operator or _current_operator(),
+        }
+        line = json.dumps(record, ensure_ascii=False)
+        with self.log_path.open("a", encoding="utf-8") as f:
+            f.write(line + "\n")
+            f.flush()
+            os.fsync(f.fileno())
+        return record
+
+    def read_all(self) -> list[dict[str, str]]:
+        """Return every record in the log, in append order. Returns [] if absent."""
+        if not self.log_path.exists():
+            return []
+        out: list[dict[str, str]] = []
+        with self.log_path.open("r", encoding="utf-8") as f:
+            for raw in f:
+                stripped = raw.strip()
+                if not stripped:
+                    continue
+                out.append(json.loads(stripped))
+        return out
+
+
+def _current_operator() -> str:
+    """Best-effort operator name. Tries os.getlogin then USER/USERNAME env vars."""
+    try:
+        return os.getlogin()
+    except OSError:
+        return os.environ.get("USER") or os.environ.get("USERNAME") or "unknown"
