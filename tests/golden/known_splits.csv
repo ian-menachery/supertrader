@@ -1,0 +1,6 @@
+ticker,ex_date,action_type,ratio,note
+AAPL,2020-08-31,split,4.0,4-for-1 split per 8-K filed 2020-07-30
+NVDA,2024-06-10,split,10.0,10-for-1 split per 8-K filed 2024-05-22
+TSLA,2022-08-25,split,3.0,3-for-1 split per 8-K filed 2022-08-04
+GOOGL,2022-07-18,split,20.0,20-for-1 split per 8-K filed 2022-02-01
+AMZN,2022-06-06,split,20.0,20-for-1 split per 8-K filed 2022-03-09

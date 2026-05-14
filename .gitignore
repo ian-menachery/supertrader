@@ -29,8 +29,9 @@ coverage.xml
 .ipynb_checkpoints/
 *-checkpoint.ipynb
 
-# Data — never commit
-data/
+# Runtime data — never commit. Anchored at repo root so the `src/supertrader/data/`
+# Python package is NOT excluded.
+/data/
 *.parquet
 *.zst
 *.zst_blocks
