@@ -1,0 +1,31 @@
+Copyright (c) 2026 Ian Menachery. All rights reserved.
+
+This code is published for research, transparency, and review. No license
+to use, copy, modify, redistribute, sublicense, or sell any portion of this
+work for any commercial or trading purpose is granted.
+
+Specifically:
+
+  * You may read, fork, and clone this repository.
+  * You may run the code on your own machine for educational purposes.
+  * You may cite, link to, or quote this work in research contexts with
+    attribution.
+  * You may NOT use this code, in whole or in part, to make trading
+    decisions with real or simulated capital that is not your own.
+  * You may NOT redistribute this code or derivative works as part of
+    any product, service, or training corpus without explicit written
+    permission from the author.
+
+DISCLAIMER:
+
+This project is personal research. The strategies, backtests, and
+analyses contained herein are exploratory. Past performance — simulated
+or otherwise — does not predict future results. The author makes no
+representation that this software is fit for any trading purpose, real
+or simulated. Nothing in this repository constitutes financial advice.
+
+THIS SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT.
+IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES, OR OTHER LIABILITY ARISING FROM THE USE OF THIS SOFTWARE.
