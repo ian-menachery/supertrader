@@ -31,7 +31,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--end", type=date.fromisoformat, default=date(2024, 3, 31))
     parser.add_argument("--universe", type=Path, default=DEFAULT_UNIVERSE)
     parser.add_argument(
-        "--data-dir", type=Path, default=REPO_ROOT / "data",
+        "--data-dir",
+        type=Path,
+        default=REPO_ROOT / "data",
         help="ParquetStore root (default: repo/data/)",
     )
     args = parser.parse_args(argv)

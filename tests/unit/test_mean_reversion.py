@@ -31,9 +31,7 @@ def prices(universe_tickers: list[str]) -> pd.DataFrame:
 
 
 class TestRanking:
-    def test_long_bottom_short_top(
-        self, signal_panel: pd.DataFrame, prices: pd.DataFrame
-    ) -> None:
+    def test_long_bottom_short_top(self, signal_panel: pd.DataFrame, prices: pd.DataFrame) -> None:
         strat = MeanReversionStrategy(signal_name="s", quantile=0.3)
         weights = strat.target_positions({"s": signal_panel}, prices)
 
@@ -52,9 +50,7 @@ class TestRanking:
         assert first_day["AMD"] == 0
         assert first_day["AMC"] == 0
 
-    def test_weights_sum_to_zero(
-        self, signal_panel: pd.DataFrame, prices: pd.DataFrame
-    ) -> None:
+    def test_weights_sum_to_zero(self, signal_panel: pd.DataFrame, prices: pd.DataFrame) -> None:
         strat = MeanReversionStrategy(signal_name="s")
         weights = strat.target_positions({"s": signal_panel}, prices)
         for _, row in weights.iterrows():
@@ -68,9 +64,7 @@ class TestRanking:
         for _, row in weights.iterrows():
             assert float(row.abs().sum()) == pytest.approx(1.0, abs=1e-10)
 
-    def test_custom_target_gross(
-        self, signal_panel: pd.DataFrame, prices: pd.DataFrame
-    ) -> None:
+    def test_custom_target_gross(self, signal_panel: pd.DataFrame, prices: pd.DataFrame) -> None:
         strat = MeanReversionStrategy(signal_name="s", target_gross=2.0)
         weights = strat.target_positions({"s": signal_panel}, prices)
         for _, row in weights.iterrows():

@@ -44,9 +44,7 @@ def main() -> int:
     posts = store.scan("arctic_shift.posts").select("created_utc").collect()
     min_ts = posts["created_utc"].min()
     max_ts = posts["created_utc"].max()
-    log.info(
-        "available posts: %d rows from %s to %s", posts.height, str(min_ts), str(max_ts)
-    )
+    log.info("available posts: %d rows from %s to %s", posts.height, str(min_ts), str(max_ts))
 
     universe_loader = StaticUniverse.from_csv(
         REPO_ROOT / "configs" / "universe" / "snapshot_2026_05_14.csv"

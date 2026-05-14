@@ -95,9 +95,7 @@ class TestRun:
 class TestBorrowDrag:
     def test_short_position_incurs_drag(self, prices: pd.DataFrame) -> None:
         # Short both tickers — borrow drag should reduce returns vs zero borrow
-        weights = pd.DataFrame(
-            {"AAPL": [-0.5] * 5, "MSFT": [-0.5] * 5}, index=prices.index
-        )
+        weights = pd.DataFrame({"AAPL": [-0.5] * 5, "MSFT": [-0.5] * 5}, index=prices.index)
         no_borrow = CostsConfig(
             commission_bps=0.0,
             slippage_bps_base=0.0,
@@ -135,9 +133,7 @@ class TestBorrowDrag:
         )
         r_zero = VectorbtEngine(no_borrow).run(long_only_weights, prices, execution_delay_bars=0)
         # Long-only: no shorts, so borrow_drag is zero on every day
-        np.testing.assert_array_almost_equal(
-            r_borrow.returns.to_numpy(), r_zero.returns.to_numpy()
-        )
+        np.testing.assert_array_almost_equal(r_borrow.returns.to_numpy(), r_zero.returns.to_numpy())
 
 
 class TestAlignment:

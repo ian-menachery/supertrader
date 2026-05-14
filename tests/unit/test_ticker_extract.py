@@ -12,9 +12,22 @@ from supertrader.signals.reddit_sentiment.ticker_extract import (
 )
 
 UNIVERSE: set[str] = {
-    "AAPL", "MSFT", "NVDA", "TSLA", "GME", "AMC", "PLTR",
-    "GOOG", "GOOGL", "F", "V", "AMD", "MY",  # MY is in blocklist
-    "IT", "GO", "DD",  # all in blocklist
+    "AAPL",
+    "MSFT",
+    "NVDA",
+    "TSLA",
+    "GME",
+    "AMC",
+    "PLTR",
+    "GOOG",
+    "GOOGL",
+    "F",
+    "V",
+    "AMD",
+    "MY",  # MY is in blocklist
+    "IT",
+    "GO",
+    "DD",  # all in blocklist
 }
 
 DEFAULT_BLOCKLIST: set[str] = {"MY", "IT", "GO", "DD", "ALL", "FOR", "ON", "NEW"}

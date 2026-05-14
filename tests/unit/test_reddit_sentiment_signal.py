@@ -39,9 +39,7 @@ class _FakeScorer(SentimentScorer):
         self.score_map = score_map
 
     def score(self, texts: list[str]) -> NDArray[np.float64]:
-        return np.array(
-            [self.score_map.get(t.strip(), 0.0) for t in texts], dtype=np.float64
-        )
+        return np.array([self.score_map.get(t.strip(), 0.0) for t in texts], dtype=np.float64)
 
 
 def _seed_store(tmp_path: Path) -> ParquetStore:
@@ -174,9 +172,7 @@ class TestDeterminism:
     def test_same_inputs_same_outputs(self, tmp_path: Path) -> None:
         store = _seed_store(tmp_path)
         view = PITStoreView(store, as_of=date(2024, 1, 5))
-        sig = RedditSentimentSignal(
-            scorer=_FakeScorer(SCORE_MAP), universe=UNIVERSE
-        )
+        sig = RedditSentimentSignal(scorer=_FakeScorer(SCORE_MAP), universe=UNIVERSE)
         a = sig.compute(view, date(2024, 1, 2), date(2024, 1, 4), list(UNIVERSE))
         b = sig.compute(view, date(2024, 1, 2), date(2024, 1, 4), list(UNIVERSE))
         # Both have same shape and aligned NaN positions
@@ -192,9 +188,7 @@ class TestFingerprint:
         assert a.fingerprint() == b.fingerprint()
 
     def test_aggregation_changes_fingerprint(self) -> None:
-        a = RedditSentimentSignal(
-            scorer=_FakeScorer({}), universe=UNIVERSE, aggregation="mean"
-        )
+        a = RedditSentimentSignal(scorer=_FakeScorer({}), universe=UNIVERSE, aggregation="mean")
         b = RedditSentimentSignal(
             scorer=_FakeScorer({}), universe=UNIVERSE, aggregation="score_weighted_mean"
         )
@@ -217,9 +211,7 @@ class TestEdgeCases:
         out = sig.compute(view, date(2030, 1, 1), date(2030, 1, 5), list(UNIVERSE))
         assert out.empty or out.isna().all().all()
 
-    def test_runtime_universe_intersects_construction_universe(
-        self, tmp_path: Path
-    ) -> None:
+    def test_runtime_universe_intersects_construction_universe(self, tmp_path: Path) -> None:
         store = _seed_store(tmp_path)
         view = PITStoreView(store, as_of=date(2024, 1, 5))
         sig = RedditSentimentSignal(scorer=_FakeScorer(SCORE_MAP), universe=UNIVERSE)
@@ -231,7 +223,9 @@ class TestEdgeCases:
     def test_invalid_aggregation_raises(self) -> None:
         with pytest.raises(ValueError, match="Invalid aggregation"):
             RedditSentimentSignal(
-                scorer=_FakeScorer({}), universe=UNIVERSE, aggregation="garbage"  # type: ignore[arg-type]
+                scorer=_FakeScorer({}),
+                universe=UNIVERSE,
+                aggregation="garbage",  # type: ignore[arg-type]
             )
 
     def test_empty_universe_raises(self) -> None:

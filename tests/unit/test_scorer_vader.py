@@ -66,17 +66,13 @@ class TestSignAccuracy:
             return 1 if score > 0 else (-1 if score < 0 else 0)
 
         correct = sum(
-            1
-            for s, e in zip(scores, expected_signs, strict=True)
-            if predicted_sign(s, e) == e
+            1 for s, e in zip(scores, expected_signs, strict=True) if predicted_sign(s, e) == e
         )
         accuracy = correct / len(scores)
         # Must hit at least 80% sign accuracy across the 20 messages.
         assert accuracy >= 0.80, (
             f"Sign accuracy {accuracy:.1%} below 80% gate. Scores: "
-            + ", ".join(
-                f"{m[:30]}->{s:.2f}" for m, s in zip(texts, scores, strict=True)
-            )
+            + ", ".join(f"{m[:30]}->{s:.2f}" for m, s in zip(texts, scores, strict=True))
         )
 
 

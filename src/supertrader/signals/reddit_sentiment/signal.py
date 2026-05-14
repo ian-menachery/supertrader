@@ -140,9 +140,7 @@ class RedditSentimentSignal(Signal):
             return None
         return pl.concat(frames)
 
-    def _explode_and_score(
-        self, posts: pl.DataFrame, runtime_universe: set[str]
-    ) -> pd.DataFrame:
+    def _explode_and_score(self, posts: pl.DataFrame, runtime_universe: set[str]) -> pd.DataFrame:
         # Build combined text for scoring
         titles = posts["title"].fill_null("").to_list()
         bodies = posts["selftext"].fill_null("").to_list()
