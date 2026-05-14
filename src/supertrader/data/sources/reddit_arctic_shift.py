@@ -205,26 +205,22 @@ class ArcticShiftPostsSource:
             time.sleep(self.request_spacing_seconds)
         return all_rows
 
-    def fetch(self, start: date, end: date, universe: list[str]) -> pl.LazyFrame:
-        if not universe:
-            return pl.LazyFrame(schema=OUTPUT_SCHEMA)
+    def _rows_to_lazy_frame(self, rows: list[dict[str, Any]]) -> pl.LazyFrame:
+        """Shape a list of raw API records into the canonical output schema.
 
-        rows: list[dict[str, Any]] = []
-        for subreddit in universe:
-            for window_start, window_end in _month_iter(start, end):
-                rows.extend(self._fetch_subreddit_window(subreddit, window_start, window_end))
-
+        Fills missing fields with nulls, converts `created_utc` from epoch
+        seconds to a UTC `Datetime`, derives `year_month` from it, and casts
+        the whole frame to `OUTPUT_SCHEMA`. Empty input yields an empty
+        LazyFrame with the schema already in place.
+        """
         if not rows:
             return pl.LazyFrame(schema=OUTPUT_SCHEMA)
-
         df = pl.DataFrame(rows, infer_schema_length=None)
-        # Some posts have missing fields — fill with nulls then coerce.
         for col, dtype in OUTPUT_SCHEMA.items():
             if col == "year_month":
                 continue
             if col not in df.columns:
                 df = df.with_columns(pl.lit(None).cast(dtype).alias(col))
-
         return (
             df.lazy()
             .with_columns(
@@ -237,6 +233,44 @@ class ArcticShiftPostsSource:
             .cast(OUTPUT_SCHEMA)
         )
 
+    def fetch_months(
+        self, start: date, end: date, universe: list[str]
+    ) -> Iterator[tuple[str, str, pl.LazyFrame]]:
+        """Yield one fully-shaped LazyFrame per (subreddit, calendar-month).
+
+        Memory is bounded by the largest single (subreddit, month): one month
+        of /r/wallstreetbets is on the order of 25K posts ≈ 250 MB peak. The
+        full multi-year accumulator that fetch() builds is what OOM'd at
+        ~1.7 GB.
+
+        Empty months are skipped — they would only produce an empty frame
+        that the caller would no-op on anyway.
+        """
+        if not universe:
+            return
+        for subreddit in universe:
+            for window_start, window_end in _month_iter(start, end):
+                rows = self._fetch_subreddit_window(subreddit, window_start, window_end)
+                if not rows:
+                    continue
+                year_month = f"{window_start.year:04d}-{window_start.month:02d}"
+                yield subreddit, year_month, self._rows_to_lazy_frame(rows)
+
+    def fetch(self, start: date, end: date, universe: list[str]) -> pl.LazyFrame:
+        """Materialize the whole window as a single LazyFrame.
+
+        Provided for callers (and tests) that want one frame regardless of
+        memory. Production backfills should use `ingest()`, which streams
+        month-by-month and never holds more than one month at a time.
+        """
+        if not universe:
+            return pl.LazyFrame(schema=OUTPUT_SCHEMA)
+        rows: list[dict[str, Any]] = []
+        for subreddit in universe:
+            for window_start, window_end in _month_iter(start, end):
+                rows.extend(self._fetch_subreddit_window(subreddit, window_start, window_end))
+        return self._rows_to_lazy_frame(rows)
+
     def ingest(
         self,
         start: date,
@@ -244,8 +278,18 @@ class ArcticShiftPostsSource:
         universe: list[str],
         store: StoreWriter,
     ) -> int:
-        return store.write(
-            self.source_id,
-            self.fetch(start, end, universe),
-            partition_keys=("subreddit", "year_month"),
-        )
+        """Stream per (subreddit, year_month) partition, writing each as it's fetched.
+
+        Each call to `store.write` overwrites that partition atomically (see
+        `ParquetStore.write`), so a crash mid-backfill leaves a consistent
+        prefix of months on disk; resuming runs the same range again and
+        idempotently overwrites the partitions already written.
+        """
+        total_rows = 0
+        for _subreddit, _year_month, frame in self.fetch_months(start, end, universe):
+            total_rows += store.write(
+                self.source_id,
+                frame,
+                partition_keys=("subreddit", "year_month"),
+            )
+        return total_rows

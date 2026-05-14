@@ -156,6 +156,105 @@ class TestIngestEndToEnd:
         assert any(stocks_dir.glob("**/data.parquet"))
 
 
+class _RecordingStore:
+    """Fake StoreWriter that records each write call instead of touching disk.
+
+    Used by the streaming tests to assert that `ingest()` writes per
+    (subreddit, year_month) partition rather than buffering everything into
+    one mega-write.
+    """
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, tuple[str, ...], int]] = []
+
+    def write(
+        self,
+        source_id: str,
+        frame: object,
+        *,
+        partition_keys: tuple[str, ...],
+    ) -> int:
+        import polars as _pl
+
+        # `frame` is a LazyFrame; collect to count rows then record.
+        assert isinstance(frame, _pl.LazyFrame)
+        df = frame.collect()
+        # Sanity: partition columns are present on the frame.
+        for k in partition_keys:
+            assert k in df.columns, f"partition key {k!r} missing from frame columns"
+        # Capture the unique partition tuple this frame is destined for.
+        partition_values = tuple(df.select(list(partition_keys)).unique().row(0))
+        self.calls.append((source_id, partition_values, df.height))
+        return df.height
+
+
+class TestStreamingIngest:
+    def test_ingest_streams_one_write_per_subreddit_month(self) -> None:
+        """ingest() must call store.write() once per (subreddit, year_month)."""
+        # Three months x one subreddit -> expect 3 writes, not 1.
+        pages = [
+            [_post("a1", "wsb", 1_704_067_200)],  # 2024-01-01
+            [_post("b1", "wsb", 1_706_745_600)],  # 2024-02-01
+            [_post("c1", "wsb", 1_709_251_200)],  # 2024-03-01
+        ]
+        client = _make_client(pages)
+        source = ArcticShiftPostsSource(client=client, page_limit=100, request_spacing_seconds=0)
+        store = _RecordingStore()
+
+        rows = source.ingest(date(2024, 1, 1), date(2024, 3, 31), ["wsb"], store)
+
+        assert rows == 3
+        assert len(store.calls) == 3
+        partition_keys = sorted(call[1] for call in store.calls)
+        assert partition_keys == sorted(
+            [
+                ("wsb", "2024-01"),
+                ("wsb", "2024-02"),
+                ("wsb", "2024-03"),
+            ]
+        )
+
+    def test_ingest_skips_empty_months(self) -> None:
+        """Months with zero posts produce no write call (no empty partitions)."""
+        pages: list[list[dict[str, object]]] = [
+            [_post("p1", "wsb", 1_704_067_200)],  # only January has data
+            [],  # February empty
+            [],  # March empty
+        ]
+        client = _make_client(pages)
+        source = ArcticShiftPostsSource(client=client, page_limit=100, request_spacing_seconds=0)
+        store = _RecordingStore()
+
+        source.ingest(date(2024, 1, 1), date(2024, 3, 31), ["wsb"], store)
+
+        # Only the populated month produces a write.
+        assert len(store.calls) == 1
+        assert store.calls[0][1] == ("wsb", "2024-01")
+
+    def test_fetch_months_yields_one_frame_per_month(self) -> None:
+        pages = [
+            [_post("a1", "wsb", 1_704_067_200)],  # 2024-01
+            [_post("b1", "wsb", 1_706_745_600)],  # 2024-02
+        ]
+        client = _make_client(pages)
+        source = ArcticShiftPostsSource(client=client, page_limit=100, request_spacing_seconds=0)
+
+        yields = list(source.fetch_months(date(2024, 1, 1), date(2024, 2, 28), ["wsb"]))
+
+        assert len(yields) == 2
+        for subreddit, year_month, frame in yields:
+            assert subreddit == "wsb"
+            df = frame.collect()
+            assert df.height == 1
+            assert df["year_month"][0] == year_month
+
+    def test_fetch_months_empty_universe_yields_nothing(self) -> None:
+        client = _make_client([])
+        source = ArcticShiftPostsSource(client=client, request_spacing_seconds=0)
+        yields = list(source.fetch_months(date(2024, 1, 1), date(2024, 2, 1), []))
+        assert yields == []
+
+
 class TestRetryOnError:
     def test_http_error_propagates_after_retries(self) -> None:
         def handler(_request: httpx.Request) -> httpx.Response:
