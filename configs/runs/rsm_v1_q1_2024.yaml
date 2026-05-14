@@ -1,0 +1,50 @@
+# Reddit-sentiment mean-reversion v1 — Q1-2024 smoke config.
+#
+# Uses only the Reddit data already on disk (2024-01-15 to 2024-03-31). The
+# train/test/holdout split is short and noisy — DO NOT TREAT THE METRICS AS A
+# STRATEGY VERDICT. This config exists for framework validation only.
+#
+# Run the longer rsm_v1_backtest.yaml after the 2022-2023 Reddit backfill
+# completes.
+
+extends: ../base.yaml
+run_id: rsm-v1-q1-2024-smoke
+
+universe:
+  type: static
+  max_market_cap_usd: 5_000_000_000_000
+  min_market_cap_usd: 0
+  min_adv_usd: 0
+
+data_sources:
+  - type: yfinance.prices.daily
+  - type: arctic_shift.posts
+
+signals:
+  - type: reddit_sentiment
+    name: reddit_sentiment_v1
+    params:
+      scorer:
+        type: vader
+        params:
+          lexicon_path: configs/sentiment_lexicon.yaml
+      aggregation: score_weighted_mean
+      decay_halflife_hours: 24
+      sources: [arctic_shift.posts]
+
+strategy:
+  type: mean_reversion
+  signals: [reddit_sentiment_v1]
+  params:
+    quantile: 0.3
+    min_signal_observations: 5
+    target_gross: 1.0
+
+backtest:
+  start: 2024-01-15
+  end: 2024-03-28
+  train_end: 2024-02-15
+  test_end: 2024-03-08
+
+execution:
+  type: backtest

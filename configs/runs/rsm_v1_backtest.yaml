@@ -1,0 +1,50 @@
+# Reddit-sentiment mean-reversion v1 backtest.
+#
+# Window depends on backfill state. With the 2022-01 to 2024-03 Reddit backfill
+# complete, the canonical split is 18mo/6mo/3mo. If the backfill is incomplete,
+# the backtest will report empty windows; rerun after extending coverage.
+#
+# WARNING: universe is a static post-hoc snapshot — see ADR 0004. Survivorship
+# bias overstates returns by ~1-3%/yr on these results.
+
+extends: ../base.yaml
+run_id: rsm-v1-backtest
+
+universe:
+  type: static
+  max_market_cap_usd: 5_000_000_000_000   # accept all snapshot tickers
+  min_market_cap_usd: 0
+  min_adv_usd: 0
+
+data_sources:
+  - type: yfinance.prices.daily
+  - type: arctic_shift.posts
+
+signals:
+  - type: reddit_sentiment
+    name: reddit_sentiment_v1
+    params:
+      scorer:
+        type: vader
+        params:
+          lexicon_path: configs/sentiment_lexicon.yaml
+      aggregation: score_weighted_mean
+      decay_halflife_hours: 24
+      sources: [arctic_shift.posts]
+
+strategy:
+  type: mean_reversion
+  signals: [reddit_sentiment_v1]
+  params:
+    quantile: 0.3
+    min_signal_observations: 5
+    target_gross: 1.0
+
+backtest:
+  start: 2022-01-03
+  end: 2024-03-28
+  train_end: 2023-06-30
+  test_end: 2023-12-29
+
+execution:
+  type: backtest

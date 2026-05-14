@@ -105,7 +105,7 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101", "PLR2004", "ARG", "ANN", "D", "ERA"]
 "scripts/**" = ["T201", "ANN", "D"]
-"src/supertrader/cli.py" = ["ANN"]  # Typer uses dynamic typing extensively
+"src/supertrader/cli.py" = ["ANN", "B008", "UP007", "UP045"]  # Typer uses typer.Option(...) in defaults
 
 [tool.ruff.lint.isort]
 known-first-party = ["supertrader"]
