@@ -253,6 +253,68 @@ class ParquetStore:
             return None
         return (int(row[0]), str(row[1]), str(row[2]))
 
+    def upsert_run_manifest(
+        self,
+        *,
+        run_id: str,
+        config_path: str,
+        config_hash: str,
+        git_sha: str,
+        python_version: str,
+        started_at: str,
+        ended_at: str | None,
+        status: str,
+        data_hashes_json: str,
+    ) -> None:
+        """Insert-or-replace one row in the `run_manifests` reproducibility ledger.
+
+        Arguments are deliberately primitives so this method does not pull the
+        observability layer into the data layer (see import-linter contract).
+        """
+        with self._connect() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO run_manifests "
+                "(run_id, config_path, config_hash, git_sha, python_version, "
+                "started_at, ended_at, status, data_hashes) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    run_id,
+                    config_path,
+                    config_hash,
+                    git_sha,
+                    python_version,
+                    started_at,
+                    ended_at,
+                    status,
+                    data_hashes_json,
+                ),
+            )
+
+    def get_run_manifest(
+        self, run_id: str
+    ) -> tuple[str, str, str, str, str, str, str | None, str, str] | None:
+        """Return the full row for a run_id, or None if no manifest is recorded."""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT run_id, config_path, config_hash, git_sha, python_version, "
+                "started_at, ended_at, status, data_hashes "
+                "FROM run_manifests WHERE run_id = ?",
+                (run_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return (
+            str(row[0]),
+            str(row[1]),
+            str(row[2]),
+            str(row[3]),
+            str(row[4]),
+            str(row[5]),
+            str(row[6]) if row[6] is not None else None,
+            str(row[7]),
+            str(row[8]),
+        )
+
     def record_universe_snapshot(
         self,
         snapshot_id: str,

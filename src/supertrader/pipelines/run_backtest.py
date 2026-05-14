@@ -12,7 +12,6 @@ touch with the same config hash raises.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 from dataclasses import dataclass
@@ -24,12 +23,20 @@ import pandas as pd
 import polars as pl
 
 from supertrader.backtest.engine import BacktestResult, VectorbtEngine
+from supertrader.backtest.report import render_tear_sheet
 from supertrader.backtest.splits import HoldoutGuard, TrainTestHoldoutSplit
 from supertrader.config.loader import load_run_config
 from supertrader.config.schemas import RunConfig
 from supertrader.data.calendar import TradingCalendar
 from supertrader.data.store import ParquetStore, PITStoreView
 from supertrader.data.universe import StaticUniverse
+from supertrader.observability.run_manifest import (
+    RunManifest,
+    config_hash,
+    hash_input_partitions,
+    manifest_to_row,
+    start_manifest,
+)
 from supertrader.signals.reddit_sentiment.scorer_vader import VaderScorer
 from supertrader.signals.reddit_sentiment.signal import RedditSentimentSignal
 from supertrader.signals.reddit_sentiment.ticker_extract import load_blocklist
@@ -39,6 +46,9 @@ if TYPE_CHECKING:
     pass
 
 log = logging.getLogger(__name__)
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
+INPUT_SOURCE_IDS: tuple[str, ...] = ("yfinance.prices.daily", "arctic_shift.posts")
 
 
 @dataclass(frozen=True)
@@ -51,12 +61,8 @@ class BacktestRunOutput:
     test_result: BacktestResult
     holdout_result: BacktestResult | None
     metrics_path: Path
-
-
-def _config_hash(config: RunConfig) -> str:
-    """Stable hash of the full validated config — used for cache + holdout keys."""
-    blob = config.model_dump_json()
-    return hashlib.blake2b(blob.encode(), digest_size=16).hexdigest()
+    manifest: RunManifest
+    tear_sheet_path: Path
 
 
 def _build_signal(
@@ -157,26 +163,42 @@ def _run_one_window(
     )
 
 
-def run_backtest(
-    config_path: Path | str,
+def _persist_manifest(store: ParquetStore, manifest: RunManifest, run_dir: Path) -> None:
+    """Mirror a manifest to SQLite + a JSON file under `run_dir`."""
+    row = manifest_to_row(manifest)
+    store.upsert_run_manifest(
+        run_id=row[0],
+        config_path=row[1],
+        config_hash=row[2],
+        git_sha=row[3],
+        python_version=row[4],
+        started_at=row[5],
+        ended_at=row[6],
+        status=row[7],
+        data_hashes_json=row[8],
+    )
+    manifest.write_json(run_dir / "manifest.json")
+
+
+@dataclass(frozen=True)
+class _PipelineWindows:
+    train: BacktestResult
+    test: BacktestResult
+    holdout: BacktestResult | None
+
+
+def _execute_windows(
     *,
-    include_holdout: bool = False,
-    data_dir: Path | None = None,
-    universe_path: Path | None = None,
-    blocklist_path: Path | None = None,
-) -> BacktestRunOutput:
-    """Execute a backtest end-to-end given a YAML config path."""
-    repo_root = Path(__file__).resolve().parents[3]
-    data_dir = data_dir or (repo_root / "data")
-    if universe_path is None:
-        universe_path = repo_root / "configs" / "universe" / "snapshot_2026_05_14.csv"
-    blocklist_path = blocklist_path or (repo_root / "configs" / "ticker_blocklist.yaml")
-
-    config = load_run_config(config_path)
-    cfg_hash = _config_hash(config)
-    log.info("run_id=%s config_hash=%s", config.run_id, cfg_hash)
-
-    store = ParquetStore(data_dir)
+    config: RunConfig,
+    cfg_hash: str,
+    store: ParquetStore,
+    data_dir: Path,
+    universe_path: Path,
+    blocklist_path: Path,
+    repo_root: Path,
+    include_holdout: bool,
+) -> _PipelineWindows:
+    """Build strategy + signal + engine and execute each train/test/holdout window."""
     universe_loader = StaticUniverse.from_csv(universe_path)
     universe_set = set(universe_loader.tickers())
     universe_list = list(universe_set)
@@ -218,21 +240,105 @@ def run_backtest(
         log.info("=== HOLDOUT ===")
         holdout_result = _run(config.backtest.test_end, config.backtest.end)
 
-    # Write metrics JSON and the manifest
-    run_dir = data_dir / "runs" / config.run_id
-    run_dir.mkdir(parents=True, exist_ok=True)
+    return _PipelineWindows(train=train_result, test=test_result, holdout=holdout_result)
+
+
+def _write_metrics_json(
+    *, run_dir: Path, config: RunConfig, cfg_hash: str, windows: _PipelineWindows
+) -> Path:
     metrics_payload = {
         "run_id": config.run_id,
         "config_hash": cfg_hash,
         "created_at": datetime.now(tz=UTC).isoformat(),
-        "train": train_result.metrics,
-        "test": test_result.metrics,
-        "holdout": holdout_result.metrics if holdout_result is not None else None,
+        "train": windows.train.metrics,
+        "test": windows.test.metrics,
+        "holdout": windows.holdout.metrics if windows.holdout is not None else None,
     }
     metrics_path = run_dir / "metrics.json"
     with metrics_path.open("w", encoding="utf-8") as f:
         json.dump(metrics_payload, f, indent=2, default=str)
     log.info("metrics written to %s", metrics_path)
+    return metrics_path
+
+
+def run_backtest(
+    config_path: Path | str,
+    *,
+    include_holdout: bool = False,
+    data_dir: Path | None = None,
+    universe_path: Path | None = None,
+    blocklist_path: Path | None = None,
+    allow_dirty: bool = False,
+) -> BacktestRunOutput:
+    """Execute a backtest end-to-end given a YAML config path.
+
+    On a dirty git tree, refuses to run unless `allow_dirty=True`. Every run
+    writes a `RunManifest` to both `meta.sqlite` and `data/runs/<run_id>/
+    manifest.json`, then renders `tear_sheet.html` alongside `metrics.json`.
+    """
+    repo_root = REPO_ROOT
+    data_dir = data_dir or (repo_root / "data")
+    if universe_path is None:
+        universe_path = repo_root / "configs" / "universe" / "snapshot_2026_05_14.csv"
+    blocklist_path = blocklist_path or (repo_root / "configs" / "ticker_blocklist.yaml")
+
+    config = load_run_config(config_path)
+    cfg_hash = config_hash(config)
+    log.info("run_id=%s config_hash=%s", config.run_id, cfg_hash)
+
+    store = ParquetStore(data_dir)
+    run_dir = data_dir / "runs" / config.run_id
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+    manifest = start_manifest(
+        run_id=config.run_id,
+        config_path=Path(config_path),
+        config_hash_hex=cfg_hash,
+        repo_root=repo_root,
+        allow_dirty=allow_dirty,
+    )
+    _persist_manifest(store, manifest, run_dir)
+    if manifest.git_dirty:
+        log.warning("running with --allow-dirty; git_dirty=True recorded on manifest")
+
+    try:
+        windows = _execute_windows(
+            config=config,
+            cfg_hash=cfg_hash,
+            store=store,
+            data_dir=data_dir,
+            universe_path=universe_path,
+            blocklist_path=blocklist_path,
+            repo_root=repo_root,
+            include_holdout=include_holdout,
+        )
+        metrics_path = _write_metrics_json(
+            run_dir=run_dir, config=config, cfg_hash=cfg_hash, windows=windows
+        )
+
+        data_hashes = hash_input_partitions(store.root, list(INPUT_SOURCE_IDS))
+        manifest = manifest.with_status(
+            status="ok", ended_at=datetime.now(tz=UTC), data_hashes=data_hashes
+        )
+        _persist_manifest(store, manifest, run_dir)
+
+        tear_sheet_path = render_tear_sheet(
+            train=windows.train,
+            test=windows.test,
+            holdout=windows.holdout,
+            manifest=manifest,
+            out_path=run_dir / "tear_sheet.html",
+        )
+        log.info("tear sheet written to %s", tear_sheet_path)
+
+    except Exception:
+        manifest = manifest.with_status(status="failed", ended_at=datetime.now(tz=UTC))
+        _persist_manifest(store, manifest, run_dir)
+        raise
+    else:
+        train_result = windows.train
+        test_result = windows.test
+        holdout_result = windows.holdout
 
     return BacktestRunOutput(
         config=config,
@@ -241,4 +347,6 @@ def run_backtest(
         test_result=test_result,
         holdout_result=holdout_result,
         metrics_path=metrics_path,
+        manifest=manifest,
+        tear_sheet_path=tear_sheet_path,
     )

@@ -106,3 +106,54 @@ class TestParquetStoreRead:
     def test_scan_missing_source_raises(self, store: ParquetStore) -> None:
         with pytest.raises(FileNotFoundError):
             store.scan("nonexistent.source")
+
+
+class TestParquetStoreRunManifest:
+    def test_upsert_and_get_roundtrip(self, store: ParquetStore) -> None:
+        store.upsert_run_manifest(
+            run_id="r1",
+            config_path="configs/runs/x.yaml",
+            config_hash="a" * 32,
+            git_sha="b" * 40,
+            python_version="3.12.5",
+            started_at="2026-05-14T10:00:00+00:00",
+            ended_at=None,
+            status="running",
+            data_hashes_json="{}",
+        )
+        row = store.get_run_manifest("r1")
+        assert row is not None
+        assert row[0] == "r1"
+        assert row[7] == "running"
+        assert row[6] is None  # ended_at
+
+    def test_upsert_replaces_on_same_run_id(self, store: ParquetStore) -> None:
+        store.upsert_run_manifest(
+            run_id="r1",
+            config_path="x.yaml",
+            config_hash="a" * 32,
+            git_sha="b" * 40,
+            python_version="3.12.5",
+            started_at="2026-05-14T10:00:00+00:00",
+            ended_at=None,
+            status="running",
+            data_hashes_json="{}",
+        )
+        store.upsert_run_manifest(
+            run_id="r1",
+            config_path="x.yaml",
+            config_hash="a" * 32,
+            git_sha="b" * 40,
+            python_version="3.12.5",
+            started_at="2026-05-14T10:00:00+00:00",
+            ended_at="2026-05-14T10:05:00+00:00",
+            status="ok",
+            data_hashes_json='{"foo": "bar"}',
+        )
+        row = store.get_run_manifest("r1")
+        assert row is not None
+        assert row[7] == "ok"
+        assert row[6] == "2026-05-14T10:05:00+00:00"
+
+    def test_get_unknown_returns_none(self, store: ParquetStore) -> None:
+        assert store.get_run_manifest("nope") is None

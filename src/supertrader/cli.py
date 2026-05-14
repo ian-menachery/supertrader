@@ -31,18 +31,25 @@ def backtest(
         "--include-holdout",
         help="DANGER: evaluate the holdout window (one-shot per config_hash).",
     ),
+    allow_dirty: bool = typer.Option(
+        False,
+        "--allow-dirty/--no-allow-dirty",
+        help="Run even if the git tree has uncommitted changes (the dirty "
+        "flag is still recorded on the manifest).",
+    ),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="DEBUG-level logs"),
 ) -> None:
     """Run a backtest end-to-end against the on-disk store."""
     level = logging.DEBUG if verbose else logging.INFO
     logging.basicConfig(level=level, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
-    result = run_backtest(config, include_holdout=include_holdout)
+    result = run_backtest(config, include_holdout=include_holdout, allow_dirty=allow_dirty)
     typer.echo("")
     typer.echo("=" * 60)
     typer.echo(f"run_id:      {result.config.run_id}")
     typer.echo(f"config_hash: {result.config_hash}")
     typer.echo(f"metrics:     {result.metrics_path}")
+    typer.echo(f"tear_sheet:  {result.tear_sheet_path}")
     typer.echo("=" * 60)
     for window_name, window_result in [
         ("TRAIN", result.train_result),

@@ -164,6 +164,7 @@ class TestPipelineSmoke:
             data_dir=data_dir,
             universe_path=fixture_universe_csv,
             blocklist_path=fixture_blocklist,
+            allow_dirty=True,
         )
 
         assert out.config.run_id == "smoke-e2e-test"
@@ -175,6 +176,15 @@ class TestPipelineSmoke:
         payload = json.loads(out.metrics_path.read_text())
         assert payload["run_id"] == "smoke-e2e-test"
         assert payload["holdout"] is None
+        # Manifest + tear sheet land on disk alongside metrics.
+        assert (out.metrics_path.parent / "manifest.json").exists()
+        assert out.tear_sheet_path.exists()
+        assert out.manifest.status == "ok"
+        assert out.manifest.git_dirty is True  # we passed allow_dirty=True
+        # SQLite manifest row matches the on-disk JSON.
+        sqlite_row = ParquetStore(data_dir).get_run_manifest("smoke-e2e-test")
+        assert sqlite_row is not None
+        assert sqlite_row[7] == "ok"  # status column
 
     def test_holdout_guard_blocks_second_touch(
         self,
@@ -196,6 +206,7 @@ class TestPipelineSmoke:
             data_dir=data_dir,
             universe_path=fixture_universe_csv,
             blocklist_path=fixture_blocklist,
+            allow_dirty=True,
         )
         assert out1.holdout_result is not None
 
@@ -207,4 +218,5 @@ class TestPipelineSmoke:
                 data_dir=data_dir,
                 universe_path=fixture_universe_csv,
                 blocklist_path=fixture_blocklist,
+                allow_dirty=True,
             )
