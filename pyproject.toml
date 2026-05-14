@@ -1,0 +1,197 @@
+[project]
+name = "supertrader"
+version = "0.1.0"
+description = "Personal quantitative research platform with Reddit-sentiment mean-reversion as first strategy."
+readme = "README.md"
+requires-python = ">=3.12"
+authors = [{ name = "Ian Menachery", email = "hatcher.ry@northeastern.edu" }]
+license = { text = "UNLICENSED" }
+
+dependencies = [
+    "polars>=1.0",
+    "pandas>=2.2",
+    "pyarrow>=15.0",
+    "numpy>=1.26",
+    "pydantic>=2.6",
+    "pydantic-settings>=2.2",
+    "pyyaml>=6.0",
+    "vectorbt>=0.26",
+    "pandas-market-calendars>=4.4",
+    "yfinance>=0.2.40",
+    "alpaca-py>=0.30",
+    "praw>=7.7",
+    "vaderSentiment>=3.3",
+    "structlog>=24.1",
+    "typer>=0.12",
+    "jinja2>=3.1",
+    "deepdiff>=7.0",
+    "httpx>=0.27",
+    "tenacity>=8.2",
+    "rich>=13.7",
+]
+
+[project.scripts]
+supertrader = "supertrader.cli:app"
+
+[dependency-groups]
+dev = [
+    "ruff>=0.5",
+    "mypy>=1.10",
+    "pytest>=8.2",
+    "pytest-cov>=5.0",
+    "pytest-xdist>=3.6",
+    "pytest-mock>=3.14",
+    "hypothesis>=6.100",
+    "import-linter>=2.0",
+    "pre-commit>=3.7",
+    "ipykernel>=6.29",
+    "jupyter>=1.0",
+    "types-PyYAML>=6.0",
+    "pandas-stubs>=2.2",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/supertrader"]
+
+# ──────────────────────────── Ruff ────────────────────────────
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+extend-exclude = ["research", "data", "*.ipynb"]
+
+[tool.ruff.lint]
+select = [
+    "F",   # pyflakes
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "I",   # isort
+    "UP",  # pyupgrade
+    "B",   # bugbear
+    "SIM", # simplify
+    "C4",  # comprehensions
+    "N",   # naming
+    "S",   # security (bandit subset)
+    "A",   # builtins shadowing
+    "PIE", # misc
+    "PT",  # pytest style
+    "RET", # return statements
+    "RUF", # ruff-specific
+    "TID", # tidy imports
+    "ARG", # unused args
+    "ERA", # eradicate (no commented code)
+    "PL",  # pylint subset
+    "PERF",# performance
+    "TRY", # try/except antipatterns
+    "ANN", # annotations
+    "D",   # pydocstyle (lite via ignore list below)
+]
+ignore = [
+    "S101",    # asserts ok in tests (also overridden per-file)
+    "PLR0913", # many args ok for config models / strategy ctor
+    "TRY003",  # long exception messages ok
+    "ANN401",  # Any allowed at config boundary
+    "D100", "D101", "D102", "D103", "D104", "D105", "D107",
+    # Don't force docstrings everywhere; we require them via review checklist on public APIs.
+    "D203", "D213",  # conflicting docstring style rules
+    "PLR2004", # magic-value comparisons sometimes fine
+    "PLR0911", # too-many-returns; pragmatic
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "PLR2004", "ARG", "ANN", "D", "ERA"]
+"scripts/**" = ["T201", "ANN", "D"]
+"src/supertrader/cli.py" = ["ANN"]  # Typer uses dynamic typing extensively
+
+[tool.ruff.lint.isort]
+known-first-party = ["supertrader"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+# ──────────────────────────── mypy ────────────────────────────
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unreachable = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+disallow_any_explicit = false
+plugins = ["pydantic.mypy"]
+exclude = ["research/", "data/", "build/", "dist/"]
+
+[[tool.mypy.overrides]]
+module = [
+    "vectorbt.*",
+    "vaderSentiment.*",
+    "praw.*",
+    "yfinance.*",
+    "alpaca.*",
+    "pandas_market_calendars.*",
+    "deepdiff.*",
+]
+ignore_missing_imports = true
+
+# ──────────────────────────── pytest ────────────────────────────
+[tool.pytest.ini_options]
+minversion = "8.0"
+addopts = [
+    "-ra",
+    "--strict-markers",
+    "--strict-config",
+    "--cov=supertrader",
+    "--cov-report=term-missing",
+    "--cov-fail-under=80",
+]
+testpaths = ["tests"]
+markers = [
+    "slow: tests that take >1s",
+    "integration: requires disk",
+    "e2e: requires full pipeline",
+    "needs_credentials: skipped without env vars",
+]
+filterwarnings = [
+    "error",
+    "ignore::DeprecationWarning:vectorbt.*",
+    "ignore::DeprecationWarning:pandas.*",
+    "ignore::pytest.PytestUnraisableExceptionWarning",
+]
+
+# ──────────────────────────── coverage ────────────────────────────
+[tool.coverage.run]
+branch = true
+source = ["src/supertrader"]
+omit = [
+    "src/supertrader/observability/*",
+    "src/supertrader/cli.py",
+    "src/supertrader/_version.py",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "\\.\\.\\.",  # ellipsis bodies on protocols / ABCs
+]
+
+# ──────────────────────────── import-linter ────────────────────────────
+[tool.importlinter]
+root_package = "supertrader"
+
+[[tool.importlinter.contracts]]
+name = "Layered architecture"
+type = "layers"
+layers = [
+    "supertrader.pipelines",
+    "supertrader.execution | supertrader.backtest",
+    "supertrader.strategies",
+    "supertrader.signals",
+    "supertrader.data",
+    "supertrader.config | supertrader.observability",
+]

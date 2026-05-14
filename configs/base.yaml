@@ -1,0 +1,20 @@
+# Baseline configuration inherited by every run config via `extends:`.
+# Concrete run configs override or extend any subset of these defaults.
+
+universe:
+  type: static
+  max_market_cap_usd: 10_000_000_000   # $10B cap
+  min_market_cap_usd: 300_000_000      # $300M floor — avoid micro-caps
+  min_adv_usd: 5_000_000               # $5M ADV — liquid enough to trade
+  exclude_tickers: []
+
+backtest:
+  initial_capital: 1_000_000.0
+  rebalance_frequency: 1d
+  execution_delay_bars: 1              # signal at t close → trade at t+1 open
+  costs:
+    commission_bps: 1.0
+    slippage_bps_base: 3.0
+    slippage_impact_coeff_bps: 10.0
+    borrow_bps_annual: 50.0
+    hard_to_borrow_bps_annual: 500.0
