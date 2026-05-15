@@ -173,3 +173,55 @@ Read the canonical plan at `~/.claude/plans/i-m-building-a-personal-sorted-kettl
 then the relevant ADR in `docs/adr/`, then the limitations doc. If still
 unclear, ask the user — the budget is 160 hours total across 8 weeks; a
 two-minute question beats a half-hour of guessing.
+
+## Lessons learned (RSM v1 cycle)
+
+Hard-won from the first complete research cycle. Each is here because
+ignoring it would have cost real time or produced a wrong conclusion.
+
+- **Anti-generalization is not opportunity.** If train Sharpe is negative
+  and test Sharpe is positive on the same config, the strategy has
+  *anti-generalized* — it lost money in-sample, then got lucky
+  out-of-sample. The honest read is "regime-dependent noise," not "the
+  test set reveals hidden edge." A real signal looks the *other* way
+  (in-sample fit, slightly worse out-of-sample). See
+  `docs/postmortem/rsm-v1.md` finding F4.
+
+- **Decompose any "good" test Sharpe before celebrating.** A 6-month test
+  window with Sharpe ≈ 1.5 can be entirely one quarter of luck. Slice
+  the daily returns by month or by regime *before* claiming an edge. We
+  found RSM v1's +1.74 test Sharpe was ~80% from a single quarter
+  (`docs/postmortem/rsm-v1.md` F2). The
+  `scripts/decompose_test_quarters.py` pattern is reusable: re-execute
+  the same `config_hash` in-process and slice the in-memory
+  `BacktestResult.returns` — no new peek, just a different lens.
+
+- **Beta-check every long/short before celebrating.** A long/short with
+  net exposure ≈ 0 can still have meaningful beta to the market if the
+  short basket is systematically higher-beta than the long basket.
+  Information ratio (vs SPY) is the right metric to claim "edge over the
+  benchmark." If IR < 0.5 on a 6-month window, it's noise; the SE is too
+  wide.
+
+- **Sharpe SE is roughly 1 / √(years × annualization-factor).** On a
+  125-day (~0.5 year) test, the SE on a Sharpe estimate is ≈ √(2) ≈ 1.4.
+  Anything in [-1, +1] is statistically zero. Anything in [0.8, 2.0]
+  *might* be real, but a longer window is needed to be confident.
+
+- **The price-DataFrame index is not deterministic across data ingests.**
+  `_load_prices` in `pipelines/run_backtest.py` pivots over whatever
+  tickers are in `yfinance.prices.daily`. Adding SPY to the store
+  shifted the canonical-config test Sharpe from 1.74 to 0.94 because
+  SPY's date coverage differs slightly from the universe tickers.
+  Future fix: intersect dates with `TradingCalendar.sessions(...)`
+  before pivot. Until then, any reproducibility claim has to control
+  for "what was in the store at run time."
+
+- **Don't burn the holdout slot to chase a noisy test result.**
+  `HoldoutGuard` is one-shot per `config_hash`. If train+test+
+  cost-sensitivity all point to noise, the holdout slot stays unspent
+  for a future variant that earned it.
+
+- **A negative result is a real result.** Document the postmortem; don't
+  bury it. The point of strict discipline is so you can publish negative
+  results with the same confidence as positive ones.

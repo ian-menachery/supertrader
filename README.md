@@ -10,7 +10,8 @@ strategies are config files plus a small `Strategy` subclass.
 
 ## Status
 
-Week 5 of an 8-week build. The framework is shipped end-to-end:
+First research cycle complete. The framework is shipped end-to-end and the
+first strategy idea has been evaluated honestly.
 
 | Phase | Status |
 | ----- | ------ |
@@ -19,14 +20,28 @@ Week 5 of an 8-week build. The framework is shipped end-to-end:
 | vectorbt engine + costs + metrics + `MeanReversionStrategy` | done |
 | HoldoutGuard + one-shot holdout discipline | done |
 | HTML tear sheet + `RunManifest` reproducibility ledger | done |
-| 2-year WSB backfill (2022-2023) | in progress (~9h run) |
-| Canonical 18mo/6mo/3mo backtest + honest verdict | pending backfill |
-| Paper trading via Alpaca, Form 4 integration sketch | future |
+| 2-year WSB backfill (2022 → Q1 2024, ~415K posts) | done |
+| Canonical 18mo/6mo backtest + cost sensitivity + diagnostics | done |
+| **Honest verdict on RSM v1** | **negative — see postmortem** |
+| SPY benchmark wired (beta + IR on every tear sheet) | done |
+| Paper trading via Alpaca, Form 4 integration sketch | future, pending a working strategy |
 
-330+ tests, ~94% line coverage, mypy `--strict` clean, import-linter enforced
-layer boundaries. The actual strategy verdict is unknown — see
-[`docs/known-limitations.md`](docs/known-limitations.md) for why and what we
-can/can't claim today.
+**Result so far:** RSM v1 (Reddit-sentiment mean-reversion) produced a
+test-window Sharpe of ~0.94 but a *negative* train Sharpe of -0.47, a 2×
+cost test Sharpe of 0.68 (below the 0.8 tradeable threshold), and an
+information ratio over SPY of only +0.34. The signal is regime-dependent
+noise, not a stable edge. The holdout slot remains untouched.
+
+Full reasoning:
+- [Verdict](docs/verdicts/rsm-v1-backtest.md) — initial response to the
+  canonical run.
+- [Postmortem](docs/postmortem/rsm-v1.md) — considered analysis after
+  cost-sensitivity, momentum-variant, and Q3/Q4 decomposition.
+- [Known limitations](docs/known-limitations.md) — eight ranked caveats
+  that bound any result here.
+
+330+ tests, ~94% line coverage, mypy `--strict` clean, import-linter
+enforced layer boundaries.
 
 ## Architecture
 
