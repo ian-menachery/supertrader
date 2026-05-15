@@ -29,7 +29,7 @@ import pandas as pd
 
 from supertrader.config.registry import strategies
 from supertrader.strategies.base import Strategy
-from supertrader.strategies.risk import scale_to_gross
+from supertrader.strategies.risk import apply_position_persistence, scale_to_gross
 
 if TYPE_CHECKING:
     pass
@@ -37,10 +37,6 @@ if TYPE_CHECKING:
 
 Direction = Literal["mean_reversion", "momentum"]
 _VALID_DIRECTIONS: tuple[Direction, ...] = ("mean_reversion", "momentum")
-
-# 252 trading days/yr — matches `backtest.metrics.ANNUALIZATION_DAILY`.
-# Used to translate the `max_turnover_annual` cap into a per-day budget.
-_ANNUALIZATION: int = 252
 
 
 @strategies.register("mean_reversion")
@@ -147,44 +143,8 @@ class MeanReversionStrategy(Strategy):
             weights.loc[date_idx, shorts] = -1.0 / cutoff
 
         scaled = scale_to_gross(weights, target_gross=self._target_gross)
-        return self._apply_position_persistence(scaled)
-
-    def _apply_position_persistence(self, weights: pd.DataFrame) -> pd.DataFrame:
-        """Apply EMA smoothing + per-day turnover cap, in that order.
-
-        Both transforms are no-ops at default params (`smoothing_alpha=1.0`,
-        `max_turnover_annual=None`). When set, they reduce day-to-day churn
-        which (a) makes signals earn their cost before driving trades and
-        (b) prevents silently-absurd turnover from leaving the strategy
-        layer.
-
-        EMA: `applied[t] = alpha * proposed[t] + (1 - alpha) * applied[t-1]`.
-
-        Turnover cap: per-day turnover is `sum(|applied[t] - applied[t-1]|) / 2`.
-        If the cap is set and binding, scale the per-day change pro-rata so
-        the daily turnover equals the budget (`max_turnover_annual / 252`).
-        """
-        if self._smoothing_alpha >= 1.0 and self._max_turnover_annual is None:
-            return weights
-        alpha = self._smoothing_alpha
-        daily_cap = (
-            self._max_turnover_annual / _ANNUALIZATION
-            if self._max_turnover_annual is not None
-            else None
+        return apply_position_persistence(
+            scaled,
+            smoothing_alpha=self._smoothing_alpha,
+            max_turnover_annual=self._max_turnover_annual,
         )
-        out = weights.copy()
-        prev = pd.Series(0.0, index=weights.columns, dtype="float64")
-        for date_idx in weights.index:
-            proposed = weights.loc[date_idx].astype("float64")
-            # Step 1: EMA smoothing.
-            smoothed = alpha * proposed + (1.0 - alpha) * prev
-            # Step 2: per-day turnover cap.
-            if daily_cap is not None:
-                change = smoothed - prev
-                proposed_daily_turnover = float(change.abs().sum()) / 2.0
-                if proposed_daily_turnover > daily_cap:
-                    blend = daily_cap / proposed_daily_turnover
-                    smoothed = prev + change * blend
-            out.loc[date_idx] = smoothed
-            prev = smoothed
-        return out

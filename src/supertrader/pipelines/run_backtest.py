@@ -41,10 +41,15 @@ from supertrader.signals.base import Signal
 from supertrader.signals.reddit_sentiment.scorer_vader import VaderScorer
 from supertrader.signals.reddit_sentiment.signal import RedditSentimentSignal
 from supertrader.signals.reddit_sentiment.ticker_extract import load_blocklist
+from supertrader.signals.technical.ma_cross import MovingAverageCrossSignal
 from supertrader.signals.technical.momentum import CrossSectionalMomentumSignal
+from supertrader.signals.technical.percent_change import PercentChangeSignal
 from supertrader.signals.technical.reversal import ZScoreReversalSignal
+from supertrader.signals.technical.rsi import RsiSignal
 from supertrader.signals.technical.volume_surge import VolumeSurgeSignal
+from supertrader.strategies.base import Strategy
 from supertrader.strategies.mean_reversion import MeanReversionStrategy
+from supertrader.strategies.threshold import SignalThresholdStrategy
 
 if TYPE_CHECKING:
     pass
@@ -123,39 +128,66 @@ def _build_signal(
             lookback_days=int(params.get("lookback_days", 20)),
             abnormal_vol_threshold=float(params.get("abnormal_vol_threshold", 2.0)),
         )
+    elif sig_type == "percent_change":
+        signal = PercentChangeSignal(lookback_days=int(params.get("lookback_days", 1)))
+    elif sig_type == "ma_cross":
+        signal = MovingAverageCrossSignal(
+            fast_window=int(params.get("fast_window", 20)),
+            slow_window=int(params.get("slow_window", 50)),
+        )
+    elif sig_type == "rsi":
+        signal = RsiSignal(window=int(params.get("window", 14)))
     else:
         msg = f"unsupported signal type {sig_type!r}; see _build_signal for the allowlist"
         raise NotImplementedError(msg)
     return sig_cfg.name, signal
 
 
-def _build_strategy(config: RunConfig) -> MeanReversionStrategy:
-    """Build the strategy. v1 supports `mean_reversion` only."""
-    if config.strategy.type != "mean_reversion":
-        msg = f"v1 pipeline supports strategy 'mean_reversion'; got '{config.strategy.type}'"
-        raise NotImplementedError(msg)
+def _build_strategy(config: RunConfig) -> MeanReversionStrategy | SignalThresholdStrategy:
+    """Build the strategy. Currently supports `mean_reversion` + `signal_threshold`."""
+    strat_type = config.strategy.type
     params = config.strategy.params
     if not config.strategy.signals:
         msg = "Strategy must reference at least one signal"
         raise ValueError(msg)
-    direction_raw = params.get("direction", "mean_reversion")
-    if direction_raw not in ("mean_reversion", "momentum"):
-        msg = (
-            f"strategy.params.direction must be 'mean_reversion' or 'momentum', "
-            f"got {direction_raw!r}"
-        )
-        raise ValueError(msg)
     max_turnover_raw = params.get("max_turnover_annual")
     max_turnover = float(max_turnover_raw) if max_turnover_raw is not None else None
-    return MeanReversionStrategy(
-        signal_name=config.strategy.signals[0],
-        quantile=float(params.get("quantile", 0.3)),
-        min_signal_observations=int(params.get("min_signal_observations", 5)),
-        target_gross=float(params.get("target_gross", 1.0)),
-        direction=direction_raw,
-        smoothing_alpha=float(params.get("smoothing_alpha", 1.0)),
-        max_turnover_annual=max_turnover,
-    )
+
+    if strat_type == "mean_reversion":
+        direction_raw = params.get("direction", "mean_reversion")
+        if direction_raw not in ("mean_reversion", "momentum"):
+            msg = (
+                f"strategy.params.direction must be 'mean_reversion' or 'momentum', "
+                f"got {direction_raw!r}"
+            )
+            raise ValueError(msg)
+        return MeanReversionStrategy(
+            signal_name=config.strategy.signals[0],
+            quantile=float(params.get("quantile", 0.3)),
+            min_signal_observations=int(params.get("min_signal_observations", 5)),
+            target_gross=float(params.get("target_gross", 1.0)),
+            direction=direction_raw,
+            smoothing_alpha=float(params.get("smoothing_alpha", 1.0)),
+            max_turnover_annual=max_turnover,
+        )
+    if strat_type == "signal_threshold":
+        short_entry_raw = params.get("short_entry")
+        short_entry = float(short_entry_raw) if short_entry_raw is not None else None
+        max_positions_raw = params.get("max_positions")
+        max_positions = int(max_positions_raw) if max_positions_raw is not None else None
+        return SignalThresholdStrategy(
+            signal_name=config.strategy.signals[0],
+            long_entry=float(params["long_entry"]),
+            short_entry=short_entry,
+            exit_threshold=float(params.get("exit_threshold", 0.0)),
+            position_size=float(params.get("position_size", 1.0)),
+            target_gross=float(params.get("target_gross", 1.0)),
+            max_positions=max_positions,
+            smoothing_alpha=float(params.get("smoothing_alpha", 1.0)),
+            max_turnover_annual=max_turnover,
+        )
+    msg = f"unsupported strategy type {strat_type!r}; see _build_strategy for the allowlist"
+    raise NotImplementedError(msg)
 
 
 def _load_prices(store: ParquetStore, start: date, end: date) -> pd.DataFrame:
@@ -208,7 +240,7 @@ def _run_one_window(
     *,
     signal_name: str,
     signal: Signal,
-    strategy: MeanReversionStrategy,
+    strategy: Strategy,
     engine: VectorbtEngine,
     store: ParquetStore,
     start: date,
