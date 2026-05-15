@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import date
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -73,11 +73,32 @@ class StrategyConfig(StrictModel):
 
 
 class CostsConfig(StrictModel):
-    """Transaction-cost model parameters. See backtest/costs.py for application."""
+    """Transaction-cost model parameters. See backtest/costs.py for application.
+
+    Per ADR 0010 (cost-model v2) the platform supports two model versions:
+
+      * **v1** — flat slippage at `slippage_bps_base` per side. Original
+        rsm_v1 + v2-tech runs used this. Kept for historical reproducibility.
+      * **v2** — flat half-spread at `half_spread_bps` per side (default 5
+        for liquid names). Strictly more conservative than v1 at default
+        values. The impact-term refinement (`slippage_impact_coeff_bps *
+        sqrt(order_notional / ADV)`) is reserved for a future v2.1 once
+        volume / ADV data flows through the engine.
+
+    New configs default to `model_version: "v2"`. Existing
+    `rsm_v1_backtest*.yaml` and `v2_tech_*.yaml` explicitly pin
+    `model_version: "v1"` so their historical metrics stay
+    bit-for-bit reproducible.
+    """
 
     commission_bps: float = 1.0
+    # v1 cost model (kept for historical reproducibility)
     slippage_bps_base: float = 3.0
     slippage_impact_coeff_bps: float = 10.0
+    # v2 cost model
+    model_version: Literal["v1", "v2"] = "v2"
+    half_spread_bps: float = 5.0
+    # Shared
     borrow_bps_annual: float = 50.0
     hard_to_borrow_bps_annual: float = 500.0
     htb_overrides_path: Path | None = None

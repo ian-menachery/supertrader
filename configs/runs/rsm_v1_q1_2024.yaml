@@ -45,6 +45,8 @@ backtest:
   end: 2024-03-28
   train_end: 2024-02-15
   test_end: 2024-03-08
+  costs:
+    model_version: v1   # pin per ADR 0010
 
 execution:
   type: backtest

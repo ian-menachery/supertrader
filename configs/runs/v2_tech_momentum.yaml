@@ -47,6 +47,8 @@ backtest:
   train_end: 2022-12-30          # 5-year train window
   test_end: 2023-12-29           # 1-year test window
   # holdout window: 2023-12-29 → 2024-12-30 (~1 year), untouched
+  costs:
+    model_version: v1   # pin per ADR 0010 — keep historical numbers reproducible
 
 execution:
   type: backtest

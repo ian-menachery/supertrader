@@ -21,7 +21,7 @@ import pandas as pd
 import vectorbt as vbt
 
 from supertrader.backtest.borrow import daily_rate
-from supertrader.backtest.costs import commission_fraction
+from supertrader.backtest.costs import commission_fraction, flat_slippage_fraction
 from supertrader.backtest.metrics import compute_metrics
 
 if TYPE_CHECKING:
@@ -65,7 +65,7 @@ class VectorbtEngine:
         weights = self._align_weights(target_weights, prices, execution_delay_bars)
 
         commission = commission_fraction(self.costs)
-        slippage = float(self.costs.slippage_bps_base) / 10_000.0
+        slippage = flat_slippage_fraction(self.costs)
 
         portfolio = vbt.Portfolio.from_orders(
             close=prices,

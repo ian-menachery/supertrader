@@ -12,7 +12,11 @@ from supertrader.backtest.borrow import (
     borrow_dollars,
     daily_rate,
 )
-from supertrader.backtest.costs import commission_dollars, commission_fraction
+from supertrader.backtest.costs import (
+    commission_dollars,
+    commission_fraction,
+    flat_slippage_fraction,
+)
 from supertrader.backtest.slippage import (
     slippage_bps,
     slippage_dollars,
@@ -39,6 +43,36 @@ class TestCommission:
     def test_dollars_absolute_value(self, costs: CostsConfig) -> None:
         # Negative notional (sell side) still charges positive commission
         assert commission_dollars(-100_000.0, costs) == pytest.approx(10.0)
+
+
+class TestFlatSlippageDispatch:
+    """The model_version dispatch added in the platform-honesty pass (ADR 0010)."""
+
+    def test_v2_is_default(self) -> None:
+        cfg = CostsConfig()
+        assert cfg.model_version == "v2"
+
+    def test_v1_uses_slippage_bps_base(self) -> None:
+        cfg = CostsConfig(model_version="v1", slippage_bps_base=7.0, half_spread_bps=99.0)
+        assert flat_slippage_fraction(cfg) == pytest.approx(7.0 / 10_000.0)
+
+    def test_v2_uses_half_spread_bps(self) -> None:
+        cfg = CostsConfig(model_version="v2", slippage_bps_base=3.0, half_spread_bps=12.0)
+        assert flat_slippage_fraction(cfg) == pytest.approx(12.0 / 10_000.0)
+
+    def test_v1_default_matches_historical_rate(self) -> None:
+        """A v1-pinned default should produce the exact original 3 bps slippage.
+
+        Critical for bit-for-bit reproducibility of rsm_v1 + v2-tech runs
+        once they pin model_version: v1 (P5).
+        """
+        cfg = CostsConfig(model_version="v1")
+        assert flat_slippage_fraction(cfg) == pytest.approx(0.0003)
+
+    def test_v2_default_is_stricter_than_v1_default(self) -> None:
+        v1 = CostsConfig(model_version="v1")
+        v2 = CostsConfig(model_version="v2")
+        assert flat_slippage_fraction(v2) > flat_slippage_fraction(v1)
 
     def test_zero_notional(self, costs: CostsConfig) -> None:
         assert commission_dollars(0.0, costs) == 0.0
