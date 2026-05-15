@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import date
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -80,7 +80,19 @@ class BacktestConfig(StrictModel):
 
     The split is enforced by `backtest.splits.HoldoutGuard`. Any run that touches
     the holdout window for a given config hash is recorded exactly once.
+
+    Per ADR 0011, the four-date schema is flexible enough for any window length
+    (PEAD wants 5y train + 1y test + 1y holdout; smoke configs want a few days
+    each). The validators below codify the contract:
+
+      * start <= train_end < test_end <= end
+      * test_end == end is only allowed when allow_empty_holdout=True (smoke
+        configs opt in explicitly so a missing holdout is never accidental).
+      * Each non-empty window spans at least `MIN_WINDOW_CALENDAR_DAYS` days
+        so degenerate metrics don't slip through unnoticed.
     """
+
+    MIN_WINDOW_CALENDAR_DAYS: ClassVar[int] = 5
 
     start: date
     end: date
@@ -88,6 +100,13 @@ class BacktestConfig(StrictModel):
     rebalance_frequency: str = "1d"
     train_end: date
     test_end: date
+    allow_empty_holdout: bool = Field(
+        default=False,
+        description=(
+            "Opt-in flag for configs that intentionally skip the holdout window "
+            "(typically smoke tests). When False, test_end must be strictly before end."
+        ),
+    )
     execution_delay_bars: int = Field(
         default=1, description="Bars between signal-as-of and order-fill. 1 = next-day open."
     )
@@ -101,6 +120,22 @@ class BacktestConfig(StrictModel):
                 f"Got start={self.start}, train_end={self.train_end}, "
                 f"test_end={self.test_end}, end={self.end}."
             )
+            raise ValueError(msg)
+        if self.test_end == self.end and not self.allow_empty_holdout:
+            msg = (
+                "test_end == end implies an empty holdout window. "
+                "If intentional (smoke test), set allow_empty_holdout=true."
+            )
+            raise ValueError(msg)
+        min_days = self.MIN_WINDOW_CALENDAR_DAYS
+        if (self.train_end - self.start).days < min_days:
+            msg = f"Train window must span at least {min_days} calendar days."
+            raise ValueError(msg)
+        if (self.test_end - self.train_end).days < min_days:
+            msg = f"Test window must span at least {min_days} calendar days."
+            raise ValueError(msg)
+        if not self.allow_empty_holdout and (self.end - self.test_end).days < min_days:
+            msg = f"Holdout window must span at least {min_days} calendar days."
             raise ValueError(msg)
         return self
 

@@ -178,6 +178,7 @@ def test_manifest_to_row_and_back(tmp_git_repo: Path) -> None:
         ended_at=datetime.now(tz=UTC),
         data_hashes={"yfinance/prices/daily/ticker=AAPL/data.parquet": "abc"},
     )
+    finalized.universe_snapshot_hash = "static:cafebabecafebabecafebabecafebabe"
     row = manifest_to_row(finalized)
     rebuilt = manifest_from_row(row)
     assert rebuilt.run_id == finalized.run_id
@@ -185,6 +186,25 @@ def test_manifest_to_row_and_back(tmp_git_repo: Path) -> None:
     assert rebuilt.git_sha == finalized.git_sha
     assert rebuilt.status == "ok"
     assert rebuilt.data_hashes == finalized.data_hashes
+    assert rebuilt.universe_snapshot_hash == finalized.universe_snapshot_hash
+
+
+def test_manifest_from_legacy_nine_tuple_row() -> None:
+    """Pre-ADR-0012 rows had 9 columns; reader defaults the new field to ''."""
+    legacy_row = (
+        "old-run",
+        "configs/runs/x.yaml",
+        "deadbeef" * 4,
+        "abcdef" * 7 + "ab",
+        "3.12.4",
+        "2026-01-01T00:00:00+00:00",
+        None,
+        "ok",
+        "{}",
+    )
+    rebuilt = manifest_from_row(legacy_row)
+    assert rebuilt.run_id == "old-run"
+    assert rebuilt.universe_snapshot_hash == ""
 
 
 def test_hash_input_partitions_skips_missing(tmp_path: Path) -> None:

@@ -1,14 +1,16 @@
-"""Tests for `data.universe.StaticUniverse` — loading, filtering, ADR 0004 invariants."""
+"""Tests for `data.universe` — StaticUniverse (ADR 0004) + PITUniverse (ADR 0012)."""
 
 from __future__ import annotations
 
 import textwrap
+from datetime import date
 from pathlib import Path
 
+import polars as pl
 import pytest
 
 from supertrader.config.schemas import UniverseConfig
-from supertrader.data.universe import StaticUniverse, UniverseEntry
+from supertrader.data.universe import PITUniverse, StaticUniverse, UniverseEntry
 
 
 def _write_csv(path: Path, body: str) -> Path:
@@ -133,3 +135,97 @@ class TestRealSnapshot:
         assert "AAPL" in u
         aapl = next(e for e in u.entries() if e.ticker == "AAPL")
         assert aapl.market_cap_usd > 1e12
+
+
+class TestStaticUniverseSnapshotHash:
+    def test_hash_is_stable(self, sample_csv: Path) -> None:
+        u1 = StaticUniverse.from_csv(sample_csv)
+        u2 = StaticUniverse.from_csv(sample_csv)
+        assert u1.snapshot_hash() == u2.snapshot_hash()
+
+    def test_hash_changes_when_tickers_change(self, sample_csv: Path) -> None:
+        u_full = StaticUniverse.from_csv(sample_csv)
+        u_filtered = u_full.filter(exclude={"AAPL"})
+        assert u_full.snapshot_hash() != u_filtered.snapshot_hash()
+
+    def test_hash_is_16_byte_hex(self, sample_csv: Path) -> None:
+        h = StaticUniverse.from_csv(sample_csv).snapshot_hash()
+        assert len(h) == 32  # 16-byte blake2b -> 32 hex chars
+        int(h, 16)  # raises if non-hex
+
+
+def _pit_panel() -> pl.DataFrame:
+    """Tiny PIT panel: AAPL+MSFT on 2024-01-02, AAPL+TSLA on 2024-01-03."""
+    return pl.DataFrame(
+        {
+            "date": [
+                date(2024, 1, 2),
+                date(2024, 1, 2),
+                date(2024, 1, 3),
+                date(2024, 1, 3),
+                date(2024, 1, 3),
+            ],
+            "ticker": ["AAPL", "MSFT", "AAPL", "MSFT", "TSLA"],
+            "included": [True, True, True, False, True],
+        }
+    )
+
+
+class TestPITUniverse:
+    def test_tickers_at_each_date(self) -> None:
+        u = PITUniverse(_pit_panel())
+        assert u.tickers(as_of=date(2024, 1, 2)) == ["AAPL", "MSFT"]
+        assert u.tickers(as_of=date(2024, 1, 3)) == ["AAPL", "TSLA"]
+
+    def test_default_as_of_returns_latest_date(self) -> None:
+        u = PITUniverse(_pit_panel())
+        assert u.tickers() == ["AAPL", "TSLA"]
+
+    def test_contains(self) -> None:
+        u = PITUniverse(_pit_panel())
+        assert "AAPL" in u
+        assert "GME" not in u
+        assert 42 not in u  # type: ignore[operator]
+
+    def test_len_counts_unique_tickers(self) -> None:
+        u = PITUniverse(_pit_panel())
+        # AAPL + MSFT + TSLA = 3 distinct tickers across the panel
+        assert len(u) == 3
+
+    def test_snapshot_hash_is_stable(self) -> None:
+        h1 = PITUniverse(_pit_panel()).snapshot_hash()
+        h2 = PITUniverse(_pit_panel()).snapshot_hash()
+        assert h1 == h2
+        assert len(h1) == 32
+
+    def test_snapshot_hash_changes_when_membership_changes(self) -> None:
+        panel = _pit_panel()
+        # Flip MSFT's membership on 2024-01-02
+        modified = panel.with_columns(
+            pl.when((pl.col("date") == date(2024, 1, 2)) & (pl.col("ticker") == "MSFT"))
+            .then(False)
+            .otherwise(pl.col("included"))
+            .alias("included")
+        )
+        assert PITUniverse(panel).snapshot_hash() != PITUniverse(modified).snapshot_hash()
+
+    def test_empty_panel_raises(self) -> None:
+        empty = pl.DataFrame(
+            {"date": [], "ticker": [], "included": []},
+            schema={"date": pl.Date, "ticker": pl.Utf8, "included": pl.Boolean},
+        )
+        with pytest.raises(ValueError, match="empty"):
+            PITUniverse(empty)
+
+    def test_missing_columns_raise(self) -> None:
+        bad = pl.DataFrame({"date": [date(2024, 1, 1)], "ticker": ["AAPL"]})
+        with pytest.raises(ValueError, match="missing required columns"):
+            PITUniverse(bad)
+
+    def test_from_eodhd_store_raises_until_phase_b(self, tmp_path: Path) -> None:
+        with pytest.raises(NotImplementedError):
+            PITUniverse.from_eodhd_store(tmp_path, "russell1000")
+
+    def test_from_eodhd_store_rejects_unknown_index(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError, match="unknown index"):
+            PITUniverse.from_eodhd_store(tmp_path, "nasdaq100")

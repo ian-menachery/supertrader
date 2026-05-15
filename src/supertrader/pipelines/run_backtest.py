@@ -225,6 +225,7 @@ def _persist_manifest(store: ParquetStore, manifest: RunManifest, run_dir: Path)
         ended_at=row[6],
         status=row[7],
         data_hashes_json=row[8],
+        universe_snapshot_hash=row[9],
     )
     manifest.write_json(run_dir / "manifest.json")
 
@@ -339,6 +340,12 @@ def run_backtest(
     run_dir = data_dir / "runs" / config.run_id
     run_dir.mkdir(parents=True, exist_ok=True)
 
+    # Load the universe early so its content hash lands on the start manifest.
+    # Per ADR 0012, recording the actual universe seen at run time is the
+    # structural fix for limitations #1 + #2 (selection / survivorship bias).
+    universe_loader = StaticUniverse.from_csv(universe_path)
+    universe_snapshot_hash = f"static:{universe_loader.snapshot_hash()}"
+
     manifest = start_manifest(
         run_id=config.run_id,
         config_path=Path(config_path),
@@ -346,6 +353,7 @@ def run_backtest(
         repo_root=repo_root,
         allow_dirty=allow_dirty,
     )
+    manifest = manifest.model_copy(update={"universe_snapshot_hash": universe_snapshot_hash})
     _persist_manifest(store, manifest, run_dir)
     if manifest.git_dirty:
         log.warning("running with --allow-dirty; git_dirty=True recorded on manifest")

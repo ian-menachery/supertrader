@@ -62,6 +62,9 @@ class RunManifest(BaseModel):
     ended_at: datetime | None = None
     status: RunStatus
     data_hashes: dict[str, str] = Field(default_factory=dict)
+    # Added per ADR 0012. Empty string for legacy rows that pre-date the
+    # field; "static:<hash>" or "pit:<hash>" once the pipeline writes it.
+    universe_snapshot_hash: str = ""
 
     def with_status(
         self,
@@ -191,11 +194,16 @@ def start_manifest(
     )
 
 
-ManifestRow = tuple[str, str, str, str, str, str, str | None, str, str]
+ManifestRow = tuple[str, str, str, str, str, str, str | None, str, str, str]
 
 
 def manifest_to_row(manifest: RunManifest) -> ManifestRow:
-    """Flatten a RunManifest into the column tuple expected by `run_manifests`."""
+    """Flatten a RunManifest into the column tuple expected by `run_manifests`.
+
+    Tuple shape mirrors the sqlite columns (see `data/store.py:SCHEMA_SQL`).
+    The trailing `universe_snapshot_hash` was added per ADR 0012; legacy
+    manifests carry an empty string.
+    """
     return (
         manifest.run_id,
         str(manifest.config_path),
@@ -206,28 +214,49 @@ def manifest_to_row(manifest: RunManifest) -> ManifestRow:
         manifest.ended_at.isoformat() if manifest.ended_at is not None else None,
         manifest.status,
         json.dumps(manifest.data_hashes, sort_keys=True),
+        manifest.universe_snapshot_hash,
     )
 
 
 def manifest_from_row(row: tuple[object, ...]) -> RunManifest:
     """Reconstruct a RunManifest from a `run_manifests` row.
 
-    The on-disk schema (`data/store.py:63`) does not include `git_dirty` or
-    `supertrader_version`, so those round-trip via the JSON mirror only.
-    SQLite roundtrip is good enough for `status` and timestamps; callers
-    needing full fidelity should read the JSON mirror instead.
+    The on-disk schema (`data/store.py:SCHEMA_SQL`) does not include
+    `git_dirty` or `supertrader_version`, so those round-trip via the JSON
+    mirror only. SQLite roundtrip is good enough for `status`, timestamps,
+    and `universe_snapshot_hash`; callers needing full fidelity should
+    read the JSON mirror instead.
+
+    Accepts 9-tuple legacy rows (pre-ADR-0012) by defaulting
+    `universe_snapshot_hash` to an empty string.
     """
-    (
-        run_id,
-        config_path,
-        config_hash_hex,
-        git_sha,
-        python_version,
-        started_at,
-        ended_at,
-        status,
-        data_hashes_json,
-    ) = row
+    universe_snapshot_hash: object
+    if len(row) == 9:
+        (
+            run_id,
+            config_path,
+            config_hash_hex,
+            git_sha,
+            python_version,
+            started_at,
+            ended_at,
+            status,
+            data_hashes_json,
+        ) = row
+        universe_snapshot_hash = ""
+    else:
+        (
+            run_id,
+            config_path,
+            config_hash_hex,
+            git_sha,
+            python_version,
+            started_at,
+            ended_at,
+            status,
+            data_hashes_json,
+            universe_snapshot_hash,
+        ) = row
     if status not in ("running", "ok", "failed"):
         msg = f"unrecognized status in run_manifests row: {status!r}"
         raise ValueError(msg)
@@ -243,4 +272,5 @@ def manifest_from_row(row: tuple[object, ...]) -> RunManifest:
         ended_at=datetime.fromisoformat(str(ended_at)) if ended_at is not None else None,
         status=status,
         data_hashes=json.loads(str(data_hashes_json)) if data_hashes_json else {},
+        universe_snapshot_hash=str(universe_snapshot_hash or ""),
     )

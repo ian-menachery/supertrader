@@ -60,16 +60,18 @@ CREATE TABLE IF NOT EXISTS universe_snapshots (
 );
 
 -- Run manifests: the reproducibility ledger. Populated by the backtest engine in Week 4.
+-- `universe_snapshot_hash` added per ADR 0012; old rows pre-migration carry an empty string.
 CREATE TABLE IF NOT EXISTS run_manifests (
-  run_id          TEXT PRIMARY KEY,
-  config_path     TEXT NOT NULL,
-  config_hash     TEXT NOT NULL,
-  git_sha         TEXT NOT NULL,
-  python_version  TEXT NOT NULL,
-  started_at      TEXT NOT NULL,
-  ended_at        TEXT,
-  status          TEXT NOT NULL,
-  data_hashes     TEXT NOT NULL
+  run_id                 TEXT PRIMARY KEY,
+  config_path            TEXT NOT NULL,
+  config_hash            TEXT NOT NULL,
+  git_sha                TEXT NOT NULL,
+  python_version         TEXT NOT NULL,
+  started_at             TEXT NOT NULL,
+  ended_at               TEXT,
+  status                 TEXT NOT NULL,
+  data_hashes            TEXT NOT NULL,
+  universe_snapshot_hash TEXT NOT NULL DEFAULT ''
 );
 
 -- Holdout-touch ledger. The UNIQUE constraint on config_hash is the forcing function:
@@ -140,6 +142,17 @@ class ParquetStore:
         with self._connect() as conn:
             conn.execute("PRAGMA journal_mode=WAL")
             conn.executescript(SCHEMA_SQL)
+            # Per ADR 0012: add the universe_snapshot_hash column on databases
+            # created before the schema change. ALTER TABLE in sqlite is
+            # idempotent only inside a try/except — we catch the duplicate-
+            # column error and move on.
+            try:
+                conn.execute(
+                    "ALTER TABLE run_manifests ADD COLUMN universe_snapshot_hash TEXT NOT NULL DEFAULT ''"
+                )
+            except sqlite3.OperationalError as e:
+                if "duplicate column name" not in str(e).lower():
+                    raise
             conn.commit()
 
     @contextmanager
@@ -265,18 +278,22 @@ class ParquetStore:
         ended_at: str | None,
         status: str,
         data_hashes_json: str,
+        universe_snapshot_hash: str = "",
     ) -> None:
         """Insert-or-replace one row in the `run_manifests` reproducibility ledger.
 
         Arguments are deliberately primitives so this method does not pull the
         observability layer into the data layer (see import-linter contract).
+
+        `universe_snapshot_hash` defaults to "" to keep callers that don't yet
+        thread the new field (added per ADR 0012) working.
         """
         with self._connect() as conn:
             conn.execute(
                 "INSERT OR REPLACE INTO run_manifests "
                 "(run_id, config_path, config_hash, git_sha, python_version, "
-                "started_at, ended_at, status, data_hashes) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "started_at, ended_at, status, data_hashes, universe_snapshot_hash) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     run_id,
                     config_path,
@@ -287,17 +304,23 @@ class ParquetStore:
                     ended_at,
                     status,
                     data_hashes_json,
+                    universe_snapshot_hash,
                 ),
             )
 
     def get_run_manifest(
         self, run_id: str
-    ) -> tuple[str, str, str, str, str, str, str | None, str, str] | None:
-        """Return the full row for a run_id, or None if no manifest is recorded."""
+    ) -> tuple[str, str, str, str, str, str, str | None, str, str, str] | None:
+        """Return the full row for a run_id, or None if no manifest is recorded.
+
+        Tuple shape: `(run_id, config_path, config_hash, git_sha,
+        python_version, started_at, ended_at, status, data_hashes_json,
+        universe_snapshot_hash)`.
+        """
         with self._connect() as conn:
             row = conn.execute(
                 "SELECT run_id, config_path, config_hash, git_sha, python_version, "
-                "started_at, ended_at, status, data_hashes "
+                "started_at, ended_at, status, data_hashes, universe_snapshot_hash "
                 "FROM run_manifests WHERE run_id = ?",
                 (run_id,),
             ).fetchone()
@@ -313,6 +336,7 @@ class ParquetStore:
             str(row[6]) if row[6] is not None else None,
             str(row[7]),
             str(row[8]),
+            str(row[9]) if row[9] is not None else "",
         )
 
     def record_universe_snapshot(
