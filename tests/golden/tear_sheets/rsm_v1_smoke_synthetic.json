@@ -53,6 +53,18 @@
       "label": "Net exposure (mean)",
       "test": "50.00%",
       "train": "50.00%"
+    },
+    {
+      "holdout": "\u2014",
+      "label": "Beta (vs SPY)",
+      "test": "\u2014",
+      "train": "\u2014"
+    },
+    {
+      "holdout": "\u2014",
+      "label": "Information ratio (vs SPY)",
+      "test": "\u2014",
+      "train": "\u2014"
     }
   ],
   "monthly_returns": [

@@ -1,20 +1,28 @@
-"""Cross-sectional mean-reversion strategy.
+"""Cross-sectional long/short strategy keyed off a single named signal.
 
-For each date, rank universe-valid tickers by the configured signal:
-  * long the bottom `quantile` (most negative sentiment → expected mean revert up)
-  * short the top `quantile` (most positive sentiment → expected mean revert down)
-  * zero-weight everyone in between
+For each date, rank universe-valid tickers by the configured signal, then:
+
+  * `direction="mean_reversion"` (default): long the *bottom* `quantile`
+    (most negative signal → expected to mean-revert up), short the top.
+  * `direction="momentum"`: long the *top* `quantile` (most positive
+    signal → expected to keep going), short the bottom.
 
 Equal weight within each bucket. Final per-row weights are rescaled so total
 gross exposure equals `target_gross` (default 1.0) via `strategies.risk`.
 
 Days with fewer than `min_signal_observations` non-null signal values produce
 zero-weight rows — no trades when the cross-section is too thin to rank.
+
+The momentum branch exists for a specific diagnostic: ADR 0005's discipline
+holds either way, but if mean-reversion produces train-Sharpe < 0 and
+momentum produces train-Sharpe > 0 on the same data, that tells us the
+strategy direction was inverted — separate from "does the signal have
+information." See `docs/verdicts/rsm-v1-backtest.md` for context.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 import pandas as pd
@@ -27,9 +35,18 @@ if TYPE_CHECKING:
     pass
 
 
+Direction = Literal["mean_reversion", "momentum"]
+_VALID_DIRECTIONS: tuple[Direction, ...] = ("mean_reversion", "momentum")
+
+
 @strategies.register("mean_reversion")
 class MeanReversionStrategy(Strategy):
-    """Cross-sectional long/short ranking by signal value."""
+    """Cross-sectional long/short ranking by signal value.
+
+    Despite the class name (kept for back-compat with the existing config
+    registry), the `direction` param flips the sign so the same code path
+    serves both mean-reversion (default) and momentum variants.
+    """
 
     strategy_id: str = "mean_reversion"
 
@@ -40,6 +57,7 @@ class MeanReversionStrategy(Strategy):
         quantile: float = 0.3,
         min_signal_observations: int = 5,
         target_gross: float = 1.0,
+        direction: Direction = "mean_reversion",
     ) -> None:
         if not 0 < quantile <= 0.5:
             msg = f"quantile must be in (0, 0.5], got {quantile}"
@@ -50,11 +68,15 @@ class MeanReversionStrategy(Strategy):
         if target_gross <= 0:
             msg = f"target_gross must be positive, got {target_gross}"
             raise ValueError(msg)
+        if direction not in _VALID_DIRECTIONS:
+            msg = f"direction must be one of {_VALID_DIRECTIONS}, got {direction!r}"
+            raise ValueError(msg)
 
         self._signal_name = signal_name
         self._quantile = quantile
         self._min_obs = min_signal_observations
         self._target_gross = target_gross
+        self._direction: Direction = direction
         self.required_signals: tuple[str, ...] = (signal_name,)
 
     def target_positions(
@@ -87,8 +109,12 @@ class MeanReversionStrategy(Strategy):
             if cutoff == 0:
                 continue
             sorted_tickers = ranks.sort_values()
-            longs = sorted_tickers.head(cutoff).index
-            shorts = sorted_tickers.tail(cutoff).index
+            bottom = sorted_tickers.head(cutoff).index
+            top = sorted_tickers.tail(cutoff).index
+            if self._direction == "mean_reversion":
+                longs, shorts = bottom, top
+            else:  # momentum
+                longs, shorts = top, bottom
             weights.loc[date_idx, longs] = 1.0 / cutoff
             weights.loc[date_idx, shorts] = -1.0 / cutoff
 

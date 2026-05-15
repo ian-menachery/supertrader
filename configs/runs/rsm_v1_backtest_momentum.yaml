@@ -1,0 +1,20 @@
+# RSM v1 — momentum direction variant.
+#
+# Same data, same windows, same strategy hyperparameters as
+# rsm_v1_backtest.yaml. ONLY change: direction = momentum (long top-decile
+# sentiment / short bottom-decile sentiment) instead of mean-reversion.
+#
+# Diagnostic per docs/verdicts/rsm-v1-backtest.md: if mean-reversion train
+# Sharpe is negative and momentum train Sharpe is positive on the same
+# data, the strategy direction was inverted. If both train Sharpes are
+# negative, the signal doesn't have directional information at this
+# parameter setting.
+#
+# Counts as one test-set peek toward ADR 0005's bonferroni accounting.
+
+extends: ./rsm_v1_backtest.yaml
+run_id: rsm-v1-backtest-momentum
+
+strategy:
+  params:
+    direction: momentum

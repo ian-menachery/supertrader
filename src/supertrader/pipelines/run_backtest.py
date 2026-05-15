@@ -50,6 +50,10 @@ log = logging.getLogger(__name__)
 REPO_ROOT = Path(__file__).resolve().parents[3]
 INPUT_SOURCE_IDS: tuple[str, ...] = ("yfinance.prices.daily", "arctic_shift.posts")
 
+# Hardcoded for now; if/when a second benchmark is needed (e.g., IWM for
+# small-cap), add a `backtest.benchmark_ticker` field to BacktestConfig.
+BENCHMARK_TICKER: str = "SPY"
+
 
 @dataclass(frozen=True)
 class BacktestRunOutput:
@@ -107,11 +111,19 @@ def _build_strategy(config: RunConfig) -> MeanReversionStrategy:
     if not config.strategy.signals:
         msg = "Strategy must reference at least one signal"
         raise ValueError(msg)
+    direction_raw = params.get("direction", "mean_reversion")
+    if direction_raw not in ("mean_reversion", "momentum"):
+        msg = (
+            f"strategy.params.direction must be 'mean_reversion' or 'momentum', "
+            f"got {direction_raw!r}"
+        )
+        raise ValueError(msg)
     return MeanReversionStrategy(
         signal_name=config.strategy.signals[0],
         quantile=float(params.get("quantile", 0.3)),
         min_signal_observations=int(params.get("min_signal_observations", 5)),
         target_gross=float(params.get("target_gross", 1.0)),
+        direction=direction_raw,
     )
 
 
@@ -128,6 +140,37 @@ def _load_prices(store: ParquetStore, start: date, end: date) -> pd.DataFrame:
     pdf.index = pd.to_datetime(pdf.index, utc=True)
     pdf.index.name = "date"
     return pdf
+
+
+def _load_benchmark_returns(
+    store: ParquetStore, start: date, end: date, ticker: str = BENCHMARK_TICKER
+) -> pd.Series | None:
+    """Load daily simple returns for the benchmark ticker.
+
+    Returns None (with a warning) if the benchmark ticker has no rows on
+    disk — the pipeline degrades gracefully to "no benchmark, no beta/IR
+    on the tear sheet" rather than failing the run.
+    """
+    df = (
+        store.scan("yfinance.prices.daily")
+        .filter(pl.col("ticker") == ticker)
+        .filter(pl.col("date") >= start)
+        .filter(pl.col("date") <= end)
+        .select(["date", "close"])
+        .sort("date")
+        .collect()
+    )
+    if df.is_empty():
+        log.warning(
+            "no benchmark prices for %s in %s..%s; tear sheet will omit beta/IR",
+            ticker,
+            start,
+            end,
+        )
+        return None
+    pdf = df.to_pandas().set_index("date")
+    pdf.index = pd.to_datetime(pdf.index, utc=True)
+    return pdf["close"].pct_change().dropna()
 
 
 def _run_one_window(
@@ -152,14 +195,20 @@ def _run_one_window(
     if prices.empty:
         msg = f"No prices on disk for {start}..{end}"
         raise RuntimeError(msg)
+    benchmark_returns = _load_benchmark_returns(store, start, end)
+    # SPY is in the prices store as a benchmark but should never be traded
+    # by the strategy. Drop it from the tradeable price frame before the
+    # weights computation.
+    tradeable_prices = prices.drop(columns=[BENCHMARK_TICKER], errors="ignore")
     log.info("computing target weights")
-    target_weights = strategy.target_positions({signal_name: signal_panel}, prices)
+    target_weights = strategy.target_positions({signal_name: signal_panel}, tradeable_prices)
     log.info("running engine")
     return engine.run(
         target_weights,
-        prices,
+        tradeable_prices,
         initial_capital=initial_capital,
         execution_delay_bars=execution_delay_bars,
+        benchmark_returns=benchmark_returns,
     )
 
 

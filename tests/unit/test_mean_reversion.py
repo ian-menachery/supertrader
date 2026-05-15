@@ -50,6 +50,23 @@ class TestRanking:
         assert first_day["AMD"] == 0
         assert first_day["AMC"] == 0
 
+    def test_momentum_flips_long_and_short(
+        self, signal_panel: pd.DataFrame, prices: pd.DataFrame
+    ) -> None:
+        """With direction='momentum' the long and short legs swap signs vs. mean-reversion."""
+        mr = MeanReversionStrategy(signal_name="s", quantile=0.3, direction="mean_reversion")
+        mom = MeanReversionStrategy(signal_name="s", quantile=0.3, direction="momentum")
+        mr_w = mr.target_positions({"s": signal_panel}, prices)
+        mom_w = mom.target_positions({"s": signal_panel}, prices)
+        # Momentum is exactly the negation of mean-reversion on a deterministic ranking.
+        for col in mr_w.columns:
+            for idx in mr_w.index:
+                assert mom_w.at[idx, col] == pytest.approx(-mr_w.at[idx, col], abs=1e-12)
+
+    def test_invalid_direction_raises(self) -> None:
+        with pytest.raises(ValueError, match="direction"):
+            MeanReversionStrategy(signal_name="s", direction="random")  # type: ignore[arg-type]
+
     def test_weights_sum_to_zero(self, signal_panel: pd.DataFrame, prices: pd.DataFrame) -> None:
         strat = MeanReversionStrategy(signal_name="s")
         weights = strat.target_positions({"s": signal_panel}, prices)

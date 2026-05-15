@@ -47,6 +47,8 @@ _METRIC_SPEC: list[tuple[str, str, str]] = [
     ("turnover_annual", "Turnover (annualized)", "{:.2f}"),
     ("gross_exposure", "Gross exposure (mean)", "{:.2%}"),
     ("net_exposure", "Net exposure (mean)", "{:.2%}"),
+    ("beta_to_benchmark", "Beta (vs SPY)", "{:.2f}"),
+    ("information_ratio", "Information ratio (vs SPY)", "{:.2f}"),
 ]
 
 _TEMPLATES_DIR = Path(__file__).parent / "templates"
