@@ -6,7 +6,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any, ClassVar
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class StrictModel(BaseModel):
@@ -45,6 +45,14 @@ class UniverseConfig(StrictModel):
         default=None, description="Average daily dollar volume floor in USD."
     )
     exclude_tickers: list[str] = Field(default_factory=list)
+
+    @field_validator("snapshot_path", mode="before")
+    @classmethod
+    def _coerce_snapshot_path(cls, v: object) -> object:
+        """Allow string paths in YAML — strict mode otherwise rejects str→Path."""
+        if isinstance(v, str):
+            return Path(v)
+        return v
 
 
 class SignalConfig(StrictModel):

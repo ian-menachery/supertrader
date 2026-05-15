@@ -1,0 +1,50 @@
+# v2 — volume surge + positive return → forward-momentum entry.
+#
+# Sparse event-style signal (per ADR 0009): NaN on most days, scores
+# only when abnormal volume + positive return co-occur. Strategy still
+# uses the cross-sectional ranker — on days with multiple events, ranks
+# them by score and takes a position; on days with no events, no
+# rebalancing happens.
+#
+# `min_signal_observations` is set low here because event days are
+# rare; demanding 50 events same day would nearly always fail.
+#
+# Counts as one test-set peek toward ADR 0005's bonferroni accounting.
+
+extends: ../base.yaml
+run_id: v2-tech-volume-surge
+
+universe:
+  type: static
+  snapshot_path: configs/universe/snapshot_sp500_2026_05_14.csv
+  max_market_cap_usd: 100_000_000_000_000
+  min_market_cap_usd: 0
+  min_adv_usd: 0
+
+data_sources:
+  - type: yfinance.prices.daily
+
+signals:
+  - type: volume_surge
+    name: volume_surge_v1
+    params:
+      lookback_days: 20
+      abnormal_vol_threshold: 2.0
+
+strategy:
+  type: mean_reversion
+  signals: [volume_surge_v1]
+  params:
+    quantile: 0.3                # widen quantile since events are rare
+    min_signal_observations: 3   # accept thin event days
+    target_gross: 1.0
+    direction: momentum
+
+backtest:
+  start: 2018-01-02
+  end: 2024-12-30
+  train_end: 2022-12-30
+  test_end: 2023-12-29
+
+execution:
+  type: backtest

@@ -37,9 +37,13 @@ from supertrader.observability.run_manifest import (
     manifest_to_row,
     start_manifest,
 )
+from supertrader.signals.base import Signal
 from supertrader.signals.reddit_sentiment.scorer_vader import VaderScorer
 from supertrader.signals.reddit_sentiment.signal import RedditSentimentSignal
 from supertrader.signals.reddit_sentiment.ticker_extract import load_blocklist
+from supertrader.signals.technical.momentum import CrossSectionalMomentumSignal
+from supertrader.signals.technical.reversal import ZScoreReversalSignal
+from supertrader.signals.technical.volume_surge import VolumeSurgeSignal
 from supertrader.strategies.mean_reversion import MeanReversionStrategy
 
 if TYPE_CHECKING:
@@ -71,34 +75,57 @@ class BacktestRunOutput:
 
 def _build_signal(
     config: RunConfig, universe: set[str], blocklist: set[str], repo_root: Path
-) -> tuple[str, RedditSentimentSignal]:
-    """Build the (single) signal from the run config. v1 supports `reddit_sentiment` only."""
+) -> tuple[str, Signal]:
+    """Build the (single) signal from the run config.
+
+    Currently supports four signal types:
+      * `reddit_sentiment` (v1 cycle)
+      * `cross_sectional_momentum`, `zscore_reversal`, `volume_surge` (v2 cycle)
+    """
     if len(config.signals) != 1:
-        msg = f"v1 pipeline supports exactly one signal; got {len(config.signals)}"
+        msg = f"pipeline supports exactly one signal; got {len(config.signals)}"
         raise NotImplementedError(msg)
     sig_cfg = config.signals[0]
-    if sig_cfg.type != "reddit_sentiment":
-        msg = f"v1 pipeline supports signal type 'reddit_sentiment'; got '{sig_cfg.type}'"
-        raise NotImplementedError(msg)
+    sig_type = sig_cfg.type
     params = sig_cfg.params
-    scorer_cfg = params.get("scorer", {})
-    scorer_type = scorer_cfg.get("type", "vader")
-    if scorer_type != "vader":
-        msg = f"v1 pipeline supports scorer 'vader' only; got '{scorer_type}'"
+
+    signal: Signal
+    if sig_type == "reddit_sentiment":
+        scorer_cfg = params.get("scorer", {})
+        scorer_type = scorer_cfg.get("type", "vader")
+        if scorer_type != "vader":
+            msg = f"reddit_sentiment supports scorer 'vader' only; got '{scorer_type}'"
+            raise NotImplementedError(msg)
+        lexicon_path_raw = scorer_cfg.get("params", {}).get(
+            "lexicon_path", "configs/sentiment_lexicon.yaml"
+        )
+        lexicon_path = repo_root / lexicon_path_raw
+        scorer = VaderScorer(lexicon_path)
+        signal = RedditSentimentSignal(
+            scorer=scorer,
+            universe=universe,
+            aggregation=params.get("aggregation", "score_weighted_mean"),
+            decay_halflife_hours=float(params.get("decay_halflife_hours", 24.0)),
+            sources=tuple(params.get("sources", ["arctic_shift.posts"])),
+            blocklist=blocklist,
+        )
+    elif sig_type == "cross_sectional_momentum":
+        signal = CrossSectionalMomentumSignal(
+            lookback_days=int(params.get("lookback_days", 252)),
+            skip_days=int(params.get("skip_days", 21)),
+        )
+    elif sig_type == "zscore_reversal":
+        signal = ZScoreReversalSignal(
+            lookback_days=int(params.get("lookback_days", 20)),
+        )
+    elif sig_type == "volume_surge":
+        signal = VolumeSurgeSignal(
+            lookback_days=int(params.get("lookback_days", 20)),
+            abnormal_vol_threshold=float(params.get("abnormal_vol_threshold", 2.0)),
+        )
+    else:
+        msg = f"unsupported signal type {sig_type!r}; see _build_signal for the allowlist"
         raise NotImplementedError(msg)
-    lexicon_path_raw = scorer_cfg.get("params", {}).get(
-        "lexicon_path", "configs/sentiment_lexicon.yaml"
-    )
-    lexicon_path = repo_root / lexicon_path_raw
-    scorer = VaderScorer(lexicon_path)
-    signal = RedditSentimentSignal(
-        scorer=scorer,
-        universe=universe,
-        aggregation=params.get("aggregation", "score_weighted_mean"),
-        decay_halflife_hours=float(params.get("decay_halflife_hours", 24.0)),
-        sources=tuple(params.get("sources", ["arctic_shift.posts"])),
-        blocklist=blocklist,
-    )
     return sig_cfg.name, signal
 
 
@@ -176,7 +203,7 @@ def _load_benchmark_returns(
 def _run_one_window(
     *,
     signal_name: str,
-    signal: RedditSentimentSignal,
+    signal: Signal,
     strategy: MeanReversionStrategy,
     engine: VectorbtEngine,
     store: ParquetStore,
@@ -339,6 +366,16 @@ def run_backtest(
     store = ParquetStore(data_dir)
     run_dir = data_dir / "runs" / config.run_id
     run_dir.mkdir(parents=True, exist_ok=True)
+
+    # Per-config universe path honors the YAML's `universe.snapshot_path` if
+    # set, so v2 tech configs can pick the SP500 snapshot without changing
+    # the CLI. Fallback to the kwarg/default for back-compat with rsm_v1
+    # configs that don't set the field.
+    if config.universe.snapshot_path is not None:
+        configured_path = config.universe.snapshot_path
+        universe_path = (
+            configured_path if configured_path.is_absolute() else repo_root / configured_path
+        )
 
     # Load the universe early so its content hash lands on the start manifest.
     # Per ADR 0012, recording the actual universe seen at run time is the

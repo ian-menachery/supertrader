@@ -1,0 +1,49 @@
+# v2 — short-term price-z-score mean reversion on S&P 500.
+#
+# Strategy: each day, rank universe by z-score of today's return vs the
+# 20-day rolling return distribution. Long the most-negative-z names
+# (down a lot today), short the most-positive-z names (up a lot today).
+# Bet: short-term overreaction reverses next day.
+#
+# Reference: Lehmann (1990) / Lo & MacKinlay (1990). High turnover —
+# this strategy will be the most cost-sensitive of the three v2
+# candidates.
+#
+# Counts as one test-set peek toward ADR 0005's bonferroni accounting.
+
+extends: ../base.yaml
+run_id: v2-tech-reversal
+
+universe:
+  type: static
+  snapshot_path: configs/universe/snapshot_sp500_2026_05_14.csv
+  max_market_cap_usd: 100_000_000_000_000
+  min_market_cap_usd: 0
+  min_adv_usd: 0
+
+data_sources:
+  - type: yfinance.prices.daily
+
+signals:
+  - type: zscore_reversal
+    name: reversal_v1
+    params:
+      lookback_days: 20
+
+strategy:
+  type: mean_reversion
+  signals: [reversal_v1]
+  params:
+    quantile: 0.1
+    min_signal_observations: 50
+    target_gross: 1.0
+    direction: mean_reversion
+
+backtest:
+  start: 2018-01-02
+  end: 2024-12-30
+  train_end: 2022-12-30
+  test_end: 2023-12-29
+
+execution:
+  type: backtest

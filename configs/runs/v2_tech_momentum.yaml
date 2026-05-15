@@ -1,0 +1,52 @@
+# v2 — cross-sectional 12-1 momentum on S&P 500.
+#
+# Per the 2026-05-14 strategic pivot (docs/postmortem/rsm-v1.md +
+# trading-system pivot plan): signals come from price/volume on US
+# equities; Reddit + Form 4 step out of active signal layer.
+#
+# Strategy: long the top-decile momentum names, short the bottom-decile.
+# Universe is the SP500 snapshot (~500 names, broader than rsm_v1's
+# 34-ticker meme list). Cost model is v1 (ADR 0010's v2 upgrade stays
+# deferred until a strategy earns it).
+#
+# Counts as one test-set peek toward ADR 0005's bonferroni accounting.
+
+extends: ../base.yaml
+run_id: v2-tech-momentum
+
+universe:
+  type: static
+  snapshot_path: configs/universe/snapshot_sp500_2026_05_14.csv
+  # SP500 snapshot has placeholder 0s for market_cap/adv; permissive filters.
+  max_market_cap_usd: 100_000_000_000_000
+  min_market_cap_usd: 0
+  min_adv_usd: 0
+
+data_sources:
+  - type: yfinance.prices.daily
+
+signals:
+  - type: cross_sectional_momentum
+    name: momentum_v1
+    params:
+      lookback_days: 252
+      skip_days: 21
+
+strategy:
+  type: mean_reversion
+  signals: [momentum_v1]
+  params:
+    quantile: 0.1                 # decile cuts
+    min_signal_observations: 50
+    target_gross: 1.0
+    direction: momentum
+
+backtest:
+  start: 2018-01-02              # earliest non-weekend day of 2018
+  end: 2024-12-30                # last business day before year-end 2024
+  train_end: 2022-12-30          # 5-year train window
+  test_end: 2023-12-29           # 1-year test window
+  # holdout window: 2023-12-29 → 2024-12-30 (~1 year), untouched
+
+execution:
+  type: backtest
