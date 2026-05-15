@@ -274,3 +274,22 @@ the user pushback caught a discipline failure mode in the proposed
   Both were noise-grade. If you ever see this pattern again on a new
   strategy, the discipline is to write the postmortem and switch
   strategy class — not to chase the apparent test-window edge.
+
+- **Sector decomposition is re-analysis, never a re-run.**
+  `scripts/decompose_by_sector.py --config <existing_config>`
+  re-executes a finished config in-process; the resulting
+  `config_hash` matches the original run, so the holdout guard sees
+  no new peek (and would refuse one anyway). Use it to ask "where
+  did the headline number actually come from" *after* a backtest is
+  done. Do NOT use it to motivate a sector-filtered re-run of the
+  same config — that's exactly the data-snooping pattern the tool's
+  scope was designed to discourage.
+
+- **Custom rule strategies (`SignalThresholdStrategy` + indicator
+  signals) cost a peek the moment they touch real prices.** The
+  threshold strategy + `percent_change` / `ma_cross` / `rsi` signals
+  are infrastructure — no new backtest gets free. A config like
+  "long when stock drops 2%, exit at flat" is a hypothesis like any
+  other; running it on the SP500 1y-test window increments N and
+  raises the bonferroni Sharpe bar. The plan that authorizes such
+  a run must cite N and the resulting threshold.

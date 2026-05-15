@@ -228,3 +228,90 @@ Next research cycle (no concrete date) should:
   redline-backfill plan (Form 4) — not both simultaneously.
 - Read this retrospective + CLAUDE.md lessons before designing the
   first config.
+
+---
+
+## 2026-05-15 — Sector decomposition + rule-based strategy infrastructure
+
+Built three pieces of platform machinery — zero new test-set peeks. N
+stays at 7.
+
+**S3 — three indicator signal classes** (compose with the new strategy
+in S2):
+
+- `signals/technical/percent_change.py` — N-day percent change
+  `close[T] / close[T-N] - 1`. Enables rules like "long when stock
+  drops 2%" via `SignalThresholdStrategy(long_entry=-0.02)`.
+- `signals/technical/ma_cross.py` — `(fast_ma - slow_ma) / slow_ma`.
+  Default 20d/50d; positive = uptrend.
+- `signals/technical/rsi.py` — Wilder's 14-day RSI rescaled to
+  `[-1, 1]`. Threshold `-0.4` ≈ RSI < 30 (oversold).
+  - Subtle correctness fix: monotonic-up case (`avg_loss == 0` and
+    `avg_gain > 0`) returns RSI 100 explicitly, not NaN. Same for the
+    symmetric monotonic-down case. Both-zero stays NaN.
+- All three appear in `tests/unit/test_technical_lookahead.py`'s
+  parametrized regression guard — 12 tests covering "signal at day T
+  must not read prices > T" across the whole technical-signals layer.
+
+**S2 — `SignalThresholdStrategy` (per-ticker time-series strategy)**:
+
+- `strategies/threshold.py` — registered as
+  `@strategies.register("signal_threshold")`.
+- Per-ticker state machine: flat → long (`signal > long_entry`),
+  flat → short (`signal < short_entry`, omit for long-only),
+  long → flat (`signal < exit_threshold`),
+  short → flat (`signal > -exit_threshold`).
+- Exit logic runs before entry logic each day — no same-day flips.
+- `max_positions` cap selects largest `|signal|` among eligible
+  entries; held positions are kept ahead of new entries.
+- NaN-price → skip entry (matches the universe-guard contract added
+  in the platform-honesty pass). NaN-signal on a held day → hold,
+  not flatten.
+- Reuses `apply_position_persistence` (smoothing + turnover cap) and
+  `scale_to_gross` from `strategies/risk.py`.
+- Helper extraction: `_apply_position_persistence` and
+  `_ANNUALIZATION` were duplicated between `MeanReversionStrategy`
+  and the new class. Promoted both to `strategies/risk.py` as
+  `apply_position_persistence` + `ANNUALIZATION_DAILY: int = 252`.
+  `MeanReversionStrategy` now imports the shared helper.
+
+**S1 — sector decomposition diagnostic** (re-analysis tool, never a
+re-run):
+
+- `backtest/sector_decomp.py` — `decompose_by_sector(weights, prices,
+  ticker_to_sector, *, execution_delay_bars=1)` returns
+  `{sector: SectorContribution}` with cumulative return, Sharpe,
+  Sortino, MaxDD, and mean gross exposure per sector. Reuses
+  `backtest.metrics` for the underlying stat computations — no new
+  metric code.
+- `scripts/decompose_by_sector.py` — CLI wrapper. Reruns a config
+  **in-process** so the resulting `config_hash` matches the original
+  run; the `HoldoutGuard` would refuse a fresh peek anyway. Prints a
+  per-sector table sorted by cum_return descending; writes
+  `data/runs/<run_id>/sector_decomp.md` if the run dir is on disk.
+- Unmapped tickers bucket into `"Unknown"` rather than being silently
+  dropped — same honesty principle as the universe-guard.
+- Zero-exposure sectors are omitted from output (won't show
+  "Energy: 0.0" rows for sectors the strategy never touched).
+
+**Pipeline wiring**:
+
+- `pipelines/run_backtest.py:_build_signal` gains
+  `percent_change` / `ma_cross` / `rsi` branches.
+- `_build_strategy` gains `signal_threshold` branch; return type
+  widened to `MeanReversionStrategy | SignalThresholdStrategy`;
+  `_run_one_window` widened to the base `Strategy` ABC.
+
+**Discipline note (carried forward, not modified):**
+
+This work adds capability but does NOT run any new backtest. The
+moment a `SignalThresholdStrategy` config gets executed against
+prices, that's an explicit peek with an explicit bonferroni cost —
+the plan that authorizes such a run must cite `N` and justify the
+threshold. The CLAUDE.md rule still holds: if a new custom-rule
+strategy produces another null result on this same SP500 + window,
+write the postmortem and switch strategy class. Do not twiddle the
+thresholds.
+
+Tests: all new modules covered. ruff / ruff-format / mypy --strict /
+import-linter / pytest gates green at session close.
