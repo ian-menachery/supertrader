@@ -38,6 +38,10 @@ if TYPE_CHECKING:
 Direction = Literal["mean_reversion", "momentum"]
 _VALID_DIRECTIONS: tuple[Direction, ...] = ("mean_reversion", "momentum")
 
+# 252 trading days/yr — matches `backtest.metrics.ANNUALIZATION_DAILY`.
+# Used to translate the `max_turnover_annual` cap into a per-day budget.
+_ANNUALIZATION: int = 252
+
 
 @strategies.register("mean_reversion")
 class MeanReversionStrategy(Strategy):
@@ -58,6 +62,8 @@ class MeanReversionStrategy(Strategy):
         min_signal_observations: int = 5,
         target_gross: float = 1.0,
         direction: Direction = "mean_reversion",
+        smoothing_alpha: float = 1.0,
+        max_turnover_annual: float | None = None,
     ) -> None:
         if not 0 < quantile <= 0.5:
             msg = f"quantile must be in (0, 0.5], got {quantile}"
@@ -71,12 +77,20 @@ class MeanReversionStrategy(Strategy):
         if direction not in _VALID_DIRECTIONS:
             msg = f"direction must be one of {_VALID_DIRECTIONS}, got {direction!r}"
             raise ValueError(msg)
+        if not 0 < smoothing_alpha <= 1.0:
+            msg = f"smoothing_alpha must be in (0, 1], got {smoothing_alpha}"
+            raise ValueError(msg)
+        if max_turnover_annual is not None and max_turnover_annual <= 0:
+            msg = f"max_turnover_annual must be positive when set, got {max_turnover_annual}"
+            raise ValueError(msg)
 
         self._signal_name = signal_name
         self._quantile = quantile
         self._min_obs = min_signal_observations
         self._target_gross = target_gross
         self._direction: Direction = direction
+        self._smoothing_alpha = smoothing_alpha
+        self._max_turnover_annual = max_turnover_annual
         self.required_signals: tuple[str, ...] = (signal_name,)
 
     def target_positions(
@@ -99,8 +113,22 @@ class MeanReversionStrategy(Strategy):
         aligned = signal_panel[common_tickers]
 
         weights = pd.DataFrame(0.0, index=aligned.index, columns=prices.columns, dtype="float64")
+        # Reindex prices to the signal's date index so per-date NaN lookups
+        # line up. Any date in `aligned` not in `prices` becomes all-NaN
+        # (effectively "no tradeable universe today") and produces a zero row.
+        prices_aligned = prices.reindex(index=aligned.index, columns=aligned.columns)
         for date_idx, row in aligned.iterrows():
             non_null = row.dropna()
+            # Out-of-universe leakage guard (added per platform-honesty pass):
+            # restrict the ranking cross-section to tickers that ALSO have a
+            # non-NaN price on this date. Without this, a ticker that's in the
+            # signal panel but not actually tradeable today (e.g., delisted, or
+            # outside a PIT universe on this date) would still contribute to
+            # the rank distribution. See tests/unit/test_strategy_universe_guard.py.
+            # mypy/pandas-stubs flags `.loc[Hashable]` as ambiguous over the
+            # overload set; at runtime this is a row selection by index value.
+            tradeable_today = prices_aligned.loc[date_idx].dropna().index  # type: ignore[call-overload]
+            non_null = non_null[non_null.index.intersection(tradeable_today)]
             if len(non_null) < self._min_obs:
                 continue
             ranks = non_null.rank(method="average")
@@ -118,4 +146,45 @@ class MeanReversionStrategy(Strategy):
             weights.loc[date_idx, longs] = 1.0 / cutoff
             weights.loc[date_idx, shorts] = -1.0 / cutoff
 
-        return scale_to_gross(weights, target_gross=self._target_gross)
+        scaled = scale_to_gross(weights, target_gross=self._target_gross)
+        return self._apply_position_persistence(scaled)
+
+    def _apply_position_persistence(self, weights: pd.DataFrame) -> pd.DataFrame:
+        """Apply EMA smoothing + per-day turnover cap, in that order.
+
+        Both transforms are no-ops at default params (`smoothing_alpha=1.0`,
+        `max_turnover_annual=None`). When set, they reduce day-to-day churn
+        which (a) makes signals earn their cost before driving trades and
+        (b) prevents silently-absurd turnover from leaving the strategy
+        layer.
+
+        EMA: `applied[t] = alpha * proposed[t] + (1 - alpha) * applied[t-1]`.
+
+        Turnover cap: per-day turnover is `sum(|applied[t] - applied[t-1]|) / 2`.
+        If the cap is set and binding, scale the per-day change pro-rata so
+        the daily turnover equals the budget (`max_turnover_annual / 252`).
+        """
+        if self._smoothing_alpha >= 1.0 and self._max_turnover_annual is None:
+            return weights
+        alpha = self._smoothing_alpha
+        daily_cap = (
+            self._max_turnover_annual / _ANNUALIZATION
+            if self._max_turnover_annual is not None
+            else None
+        )
+        out = weights.copy()
+        prev = pd.Series(0.0, index=weights.columns, dtype="float64")
+        for date_idx in weights.index:
+            proposed = weights.loc[date_idx].astype("float64")
+            # Step 1: EMA smoothing.
+            smoothed = alpha * proposed + (1.0 - alpha) * prev
+            # Step 2: per-day turnover cap.
+            if daily_cap is not None:
+                change = smoothed - prev
+                proposed_daily_turnover = float(change.abs().sum()) / 2.0
+                if proposed_daily_turnover > daily_cap:
+                    blend = daily_cap / proposed_daily_turnover
+                    smoothed = prev + change * blend
+            out.loc[date_idx] = smoothed
+            prev = smoothed
+        return out

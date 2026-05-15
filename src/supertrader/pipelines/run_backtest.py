@@ -145,12 +145,16 @@ def _build_strategy(config: RunConfig) -> MeanReversionStrategy:
             f"got {direction_raw!r}"
         )
         raise ValueError(msg)
+    max_turnover_raw = params.get("max_turnover_annual")
+    max_turnover = float(max_turnover_raw) if max_turnover_raw is not None else None
     return MeanReversionStrategy(
         signal_name=config.strategy.signals[0],
         quantile=float(params.get("quantile", 0.3)),
         min_signal_observations=int(params.get("min_signal_observations", 5)),
         target_gross=float(params.get("target_gross", 1.0)),
         direction=direction_raw,
+        smoothing_alpha=float(params.get("smoothing_alpha", 1.0)),
+        max_turnover_annual=max_turnover,
     )
 
 

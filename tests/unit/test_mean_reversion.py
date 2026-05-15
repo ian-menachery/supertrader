@@ -162,3 +162,102 @@ class TestScaleToGross:
         empty = pd.DataFrame()
         result = scale_to_gross(empty)
         assert result.empty
+
+
+class TestSmoothing:
+    """EMA weight-smoothing (P2 from the platform-honesty pass)."""
+
+    def test_alpha_1_is_no_op(self, signal_panel: pd.DataFrame, prices: pd.DataFrame) -> None:
+        baseline = MeanReversionStrategy(signal_name="s", quantile=0.3)
+        smoothed = MeanReversionStrategy(signal_name="s", quantile=0.3, smoothing_alpha=1.0)
+        w0 = baseline.target_positions({"s": signal_panel}, prices)
+        w1 = smoothed.target_positions({"s": signal_panel}, prices)
+        pd.testing.assert_frame_equal(w0, w1)
+
+    def test_alpha_below_one_blends_toward_zero_on_day_one(
+        self, signal_panel: pd.DataFrame, prices: pd.DataFrame
+    ) -> None:
+        """First-day weights start from zero, so alpha=0.5 halves the magnitudes."""
+        strat = MeanReversionStrategy(signal_name="s", quantile=0.3, smoothing_alpha=0.5)
+        weights = strat.target_positions({"s": signal_panel}, prices)
+        baseline = MeanReversionStrategy(signal_name="s", quantile=0.3).target_positions(
+            {"s": signal_panel}, prices
+        )
+        # On day 1: applied = 0.5 * baseline + 0.5 * 0 = 0.5 * baseline.
+        pd.testing.assert_series_equal(weights.iloc[0], baseline.iloc[0] * 0.5, check_names=False)
+
+    def test_alpha_below_one_reduces_gross_when_signal_flips(self) -> None:
+        """A perfectly-flipping signal at alpha=0.5 should produce damped weights."""
+        idx = pd.date_range("2024-01-02", periods=4, freq="B", tz="UTC")
+        # Two days of "AAA=0, BBB=1" then two days of "AAA=1, BBB=0" — opposite ranking.
+        signals = pd.DataFrame(
+            {"AAA": [0.0, 0.0, 1.0, 1.0], "BBB": [1.0, 1.0, 0.0, 0.0]}, index=idx
+        )
+        prices = pd.DataFrame(100.0, index=idx, columns=["AAA", "BBB"])
+        strat = MeanReversionStrategy(
+            signal_name="s", quantile=0.5, min_signal_observations=2, smoothing_alpha=0.5
+        )
+        weights = strat.target_positions({"s": signals}, prices)
+        # The flip-day weight magnitude should be smaller than the un-smoothed
+        # baseline because EMA still carries half of yesterday's opposite stance.
+        baseline = MeanReversionStrategy(
+            signal_name="s", quantile=0.5, min_signal_observations=2
+        ).target_positions({"s": signals}, prices)
+        assert weights.abs().sum().sum() < baseline.abs().sum().sum()
+
+    def test_invalid_alpha_raises(self) -> None:
+        with pytest.raises(ValueError, match="smoothing_alpha"):
+            MeanReversionStrategy(signal_name="s", smoothing_alpha=0.0)
+        with pytest.raises(ValueError, match="smoothing_alpha"):
+            MeanReversionStrategy(signal_name="s", smoothing_alpha=1.5)
+
+
+class TestTurnoverCap:
+    """Per-day turnover cap (P1 from the platform-honesty pass)."""
+
+    def test_no_cap_is_default(self, signal_panel: pd.DataFrame, prices: pd.DataFrame) -> None:
+        baseline = MeanReversionStrategy(signal_name="s", quantile=0.3)
+        capped_none = MeanReversionStrategy(signal_name="s", quantile=0.3, max_turnover_annual=None)
+        w0 = baseline.target_positions({"s": signal_panel}, prices)
+        w1 = capped_none.target_positions({"s": signal_panel}, prices)
+        pd.testing.assert_frame_equal(w0, w1)
+
+    def test_low_cap_limits_per_day_turnover(self) -> None:
+        """With a flipping signal, a low annual cap forces per-day turnover ≤ cap/252."""
+        idx = pd.date_range("2024-01-02", periods=4, freq="B", tz="UTC")
+        signals = pd.DataFrame(
+            {"AAA": [0.0, 0.0, 1.0, 1.0], "BBB": [1.0, 1.0, 0.0, 0.0]}, index=idx
+        )
+        prices = pd.DataFrame(100.0, index=idx, columns=["AAA", "BBB"])
+        # max_turnover_annual=50 → daily budget ≈ 0.198 (sum |delta_w| / 2 ≤ 0.198).
+        strat = MeanReversionStrategy(
+            signal_name="s",
+            quantile=0.5,
+            min_signal_observations=2,
+            max_turnover_annual=50.0,
+        )
+        weights = strat.target_positions({"s": signals}, prices)
+        # Compute per-day turnover and verify each row obeys the budget (with
+        # a tiny float tolerance).
+        daily_budget = 50.0 / 252.0
+        deltas = weights.diff().abs().sum(axis=1) / 2.0
+        for date_idx, t in deltas.iloc[1:].items():
+            assert t <= daily_budget + 1e-9, (
+                f"day {date_idx} exceeded daily turnover budget: {t:.4f} > {daily_budget:.4f}"
+            )
+
+    def test_high_cap_is_non_binding(
+        self, signal_panel: pd.DataFrame, prices: pd.DataFrame
+    ) -> None:
+        """A cap large enough to never bind reproduces the un-capped weights."""
+        baseline = MeanReversionStrategy(signal_name="s", quantile=0.3)
+        capped = MeanReversionStrategy(signal_name="s", quantile=0.3, max_turnover_annual=10_000.0)
+        w0 = baseline.target_positions({"s": signal_panel}, prices)
+        w1 = capped.target_positions({"s": signal_panel}, prices)
+        pd.testing.assert_frame_equal(w0, w1, atol=1e-12)
+
+    def test_invalid_cap_raises(self) -> None:
+        with pytest.raises(ValueError, match="max_turnover_annual"):
+            MeanReversionStrategy(signal_name="s", max_turnover_annual=0.0)
+        with pytest.raises(ValueError, match="max_turnover_annual"):
+            MeanReversionStrategy(signal_name="s", max_turnover_annual=-5.0)
