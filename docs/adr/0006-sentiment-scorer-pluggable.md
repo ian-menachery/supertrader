@@ -1,6 +1,6 @@
 # ADR 0006 — SentimentScorer abstraction
 
-**Status**: Accepted
+**Status**: Shipped, not in active development (2026-05-14 pivot)
 **Date**: 2026-05-14
 
 ## Context
@@ -43,3 +43,19 @@ Week 3).
 - Cache invalidation is automatic when `model_version` is bumped.
 - The 500-post hand-labeled set becomes a permanent benchmark, used to compare
   future scorers.
+
+## Status update — 2026-05-14
+
+Reddit sentiment is no longer an active signal source on this platform.
+Per `docs/postmortem/rsm-v1.md` the v1 cycle delivered a negative
+verdict, and the strategic pivot moves the signal layer toward
+technical indicators (price action + volume) on US equities.
+
+The pluggable-scorer mechanism stays in the codebase — `VaderScorer`
+remains the working implementation; `FinBertScorer` and `LLMScorer`
+stubs remain as `NotImplementedError`. The 500-post hand-labeled eval
+set was never built and is no longer planned.
+
+If a future plan revisits Reddit (for *idea generation* rather than
+*signal extraction*, per the corrected intent), this ABC is the
+right starting point. Until then: no active development.

@@ -1,6 +1,6 @@
 # ADR 0008 — Paid data sources (Polygon + EODHD)
 
-**Status**: Accepted
+**Status**: Accepted; execution deferred per 2026-05-14 cost-consciousness review
 **Date**: 2026-05-14
 
 ## Context
@@ -96,3 +96,48 @@ Each subscription is reviewed quarterly. Cancel if:
 - ADR 0007 — universe upgrade path (this ADR fulfills trigger A's "spend
   $20/mo on EODHD" branch and supersedes the open question).
 - `docs/known-limitations.md` #1, #2 — closed by this ADR + ADR 0012.
+
+## Execution deferred — 2026-05-14 cost-consciousness review
+
+The provider choices above stay accepted in principle. Neither
+subscription has been activated.
+
+### Why deferred
+
+Re-examination after the rsm_v1 negative verdict + the Form 4 data
+discovery (`~/projects/redline` had 170 rows / 5 issuers, insufficient
+for a cross-sectional study): every plausible next-strategy faces a
+data-quality vs cash tradeoff *before* any v2 verdict has earned the
+spend. The disciplined move is to gate paid-data activation on a
+strategy result that says "the data quality is now the binding
+constraint."
+
+### Trigger criteria
+
+Subscribe to **Polygon (~$30/mo)** if all true:
+- A v2 strategy produces test Sharpe ≥ 0.5 at 1× cost AND ≥ 0.3 at 2×
+  cost on free yfinance data.
+- A second strategy idea (PEAD, or a composite) is queued and needs
+  the data Polygon provides (earnings calendar with consensus
+  estimates, level-1 spread for cost-model v2, etc.).
+
+Subscribe to **EODHD (~$20/mo)** if all true:
+- A v2 strategy has produced a positive holdout result OR shown a
+  consistent positive Sharpe across multiple test-window slices on
+  free data.
+- The intent is to re-run on a survivorship-bias-free PIT universe
+  before any paper-trading commitment.
+
+Either subscription cancels at any quarterly review if the gating
+condition reverses.
+
+### Current state
+
+- `Form4RedlineSource`, `PolygonPricesSource`, `EODHDUniverseSource`,
+  `PolygonEarningsSource` stubs all stay as `NotImplementedError`.
+- `PITUniverse.from_eodhd_store` raises `NotImplementedError` until
+  EODHD is active.
+- The platform runs entirely on free data (yfinance + WSB historical
+  on disk + static universe).
+- ADR 0010's cost-model v2 work likewise stays deferred until a paid
+  data path activates.
