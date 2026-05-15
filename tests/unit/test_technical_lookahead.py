@@ -18,8 +18,11 @@ import polars as pl
 import pytest
 
 from supertrader.data.store import ParquetStore, PITStoreView
+from supertrader.signals.technical.ma_cross import MovingAverageCrossSignal
 from supertrader.signals.technical.momentum import CrossSectionalMomentumSignal
+from supertrader.signals.technical.percent_change import PercentChangeSignal
 from supertrader.signals.technical.reversal import ZScoreReversalSignal
+from supertrader.signals.technical.rsi import RsiSignal
 from supertrader.signals.technical.volume_surge import VolumeSurgeSignal
 
 PRICES_SOURCE: str = "yfinance.prices.daily"
@@ -75,8 +78,11 @@ def seeded_store(tmp_path: Path) -> ParquetStore:
         lambda: CrossSectionalMomentumSignal(lookback_days=200, skip_days=20),
         lambda: ZScoreReversalSignal(lookback_days=20),
         lambda: VolumeSurgeSignal(lookback_days=20),
+        lambda: PercentChangeSignal(lookback_days=1),
+        lambda: MovingAverageCrossSignal(fast_window=10, slow_window=30),
+        lambda: RsiSignal(window=14),
     ],
-    ids=["momentum", "reversal", "volume_surge"],
+    ids=["momentum", "reversal", "volume_surge", "percent_change", "ma_cross", "rsi"],
 )
 def test_required_sources_is_only_prices(signal_factory: object) -> None:
     """Static contract: every technical signal declares prices and nothing else."""
@@ -93,8 +99,11 @@ def test_required_sources_is_only_prices(signal_factory: object) -> None:
         lambda: CrossSectionalMomentumSignal(lookback_days=200, skip_days=20),
         lambda: ZScoreReversalSignal(lookback_days=20),
         lambda: VolumeSurgeSignal(lookback_days=20),
+        lambda: PercentChangeSignal(lookback_days=1),
+        lambda: MovingAverageCrossSignal(fast_window=10, slow_window=30),
+        lambda: RsiSignal(window=14),
     ],
-    ids=["momentum", "reversal", "volume_surge"],
+    ids=["momentum", "reversal", "volume_surge", "percent_change", "ma_cross", "rsi"],
 )
 def test_compute_never_scans_forbidden_sources(
     seeded_store: ParquetStore, signal_factory: object
