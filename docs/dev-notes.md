@@ -100,3 +100,21 @@ Shipped the Week 5 framework deliverables in five commits on `main`:
   required reading before drawing conclusions from any tear sheet.
 - This file — engineering journal seeded with this entry.
 - Repo pushed public to `github.com/ian-menachery/supertrader`.
+
+**Canonical re-run + verdict (post-backfill):**
+
+- Backfill completed in ~1h 44min (much faster than my 5-6h estimate;
+  2023 months were lighter than 2022). 27 WSB partitions, 415K posts.
+- Canonical `rsm_v1_backtest.yaml` (1×) + `_2x_cost.yaml` + `_3x_cost.yaml`
+  all ran on the freshly-backfilled data.
+- Result pattern is unusual: **train Sharpe -0.48, test Sharpe +1.34**
+  at 1× cost. Anti-generalization — train lost money for 18 months and
+  then test made money for 6. Limitation-#3 decision tree branches to
+  *cost-sensitive but interesting* (2× test Sharpe 0.57 < 0.8 threshold),
+  but the negative-train pattern argues even more strongly against
+  treating this as a real signal.
+- Honest read landed in `docs/verdicts/rsm-v1-backtest.md`: not
+  tradeable; do not touch the holdout; next move is universe
+  randomization to test the selection-bias hypothesis (limitation #1).
+- ADR 0005's discipline holds: holdout untouched, no post-hoc parameter
+  sweep, no second test-set peek with a tuned config.
