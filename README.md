@@ -10,37 +10,53 @@ strategies are config files plus a small `Strategy` subclass.
 
 ## Status
 
-First research cycle complete. The framework is shipped end-to-end and the
-first strategy idea has been evaluated honestly.
+Two research cycles complete. Framework is the deliverable; strategies
+tested so far are documented null results.
 
 | Phase | Status |
 | ----- | ------ |
 | Data layer (Polars + Parquet store, point-in-time view) | done |
-| Reddit-sentiment signal (VADER + ticker extractor) | done |
-| vectorbt engine + costs + metrics + `MeanReversionStrategy` | done |
+| vectorbt engine + costs + metrics + cross-sectional ranking strategy | done |
 | HoldoutGuard + one-shot holdout discipline | done |
-| HTML tear sheet + `RunManifest` reproducibility ledger | done |
-| 2-year WSB backfill (2022 → Q1 2024, ~415K posts) | done |
-| Canonical 18mo/6mo backtest + cost sensitivity + diagnostics | done |
-| **Honest verdict on RSM v1** | **negative — see postmortem** |
-| SPY benchmark wired (beta + IR on every tear sheet) | done |
-| Paper trading via Alpaca, Form 4 integration sketch | future, pending a working strategy |
+| HTML tear sheet + `RunManifest` reproducibility ledger + SPY benchmark | done |
+| **Cycle 1: rsm_v1** Reddit-sentiment mean-reversion | done — negative verdict |
+| **Cycle 2: v2 tech** momentum / reversal / volume surge on SP500 | done — three negative verdicts |
+| Paid data (Polygon / EODHD) | deferred per ADR 0008 |
+| Paper trading via Alpaca, Form 4 integration | future, pending a working strategy |
 
-**Result so far:** RSM v1 (Reddit-sentiment mean-reversion) produced a
-test-window Sharpe of ~0.94 but a *negative* train Sharpe of -0.47, a 2×
-cost test Sharpe of 0.68 (below the 0.8 tradeable threshold), and an
-information ratio over SPY of only +0.34. The signal is regime-dependent
-noise, not a stable edge. The holdout slot remains untouched.
+**Results to date.** Four documented null results across two
+cycles. The platform's discipline machinery correctly identified each
+as not-tradeable and left all holdouts untouched:
+
+- **RSM v1** — test Sharpe +0.94 but train Sharpe -0.47 (anti-
+  generalization), 2× cost Sharpe 0.68 (below 0.8 threshold), IR vs
+  SPY only +0.34. Most of the test-window gain was concentrated in a
+  single quarter.
+- **v2 cross-sectional momentum** — train Sharpe -0.06, test Sharpe
+  -0.89. Window includes too many momentum-crash regimes
+  (Mar 2020 / Jan 2021 / late 2022).
+- **v2 z-score reversal** — train Sharpe -2.05, test Sharpe -3.01.
+  Short-term reversal is arbitraged out on SP500 large caps.
+- **v2 volume surge** — train Sharpe -0.67, test Sharpe +0.89, but
+  IR vs SPY -0.38. Same anti-generalization shape as rsm_v1.
+
+Per ADR 0005's bonferroni accounting, the running test-peek count
+(N=7) now implies a per-strategy Sharpe threshold of ~1.6 to clear
+multi-comparison noise. No strategy has cleared it.
 
 Full reasoning:
-- [Verdict](docs/verdicts/rsm-v1-backtest.md) — initial response to the
-  canonical run.
-- [Postmortem](docs/postmortem/rsm-v1.md) — considered analysis after
-  cost-sensitivity, momentum-variant, and Q3/Q4 decomposition.
-- [Known limitations](docs/known-limitations.md) — eight ranked caveats
-  that bound any result here.
+- [v1 verdict](docs/verdicts/rsm-v1-backtest.md) — initial rsm_v1
+  read.
+- [v1 postmortem](docs/postmortem/rsm-v1.md) — considered analysis
+  after diagnostics.
+- [v2 comparative verdict](docs/verdicts/v2-tech-comparison.md) —
+  three technical signals, side-by-side.
+- [v2 postmortem](docs/postmortem/v2-tech.md) — what the v2 results
+  imply for the next cycle.
+- [Known limitations](docs/known-limitations.md) — eight ranked
+  caveats that bound any result here.
 
-330+ tests, ~94% line coverage, mypy `--strict` clean, import-linter
+340+ tests, ~94% line coverage, mypy `--strict` clean, import-linter
 enforced layer boundaries.
 
 ## Architecture

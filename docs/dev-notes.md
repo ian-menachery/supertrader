@@ -118,3 +118,54 @@ Shipped the Week 5 framework deliverables in five commits on `main`:
   randomization to test the selection-bias hypothesis (limitation #1).
 - ADR 0005's discipline holds: holdout untouched, no post-hoc parameter
   sweep, no second test-set peek with a tuned config.
+
+## 2026-05-14 — v2 tech cycle: three signals, three negative verdicts
+
+The "build Form 4 on free data" plan exited at its first gate —
+`~/projects/redline` only has 170 Form 4 rows across 5 issuers,
+nowhere near a cross-sectional study. Pivoted again: drop Form 4 and
+Reddit-as-signal-source entirely; focus the signal layer on
+technical indicators (price action + volume) which the existing
+data + framework already support.
+
+ADRs amended for the pivot:
+- ADR 0003 (redline boundary) → *Superseded; redline not used*.
+- ADR 0006 (sentiment scorer) → *Shipped, not in active development*.
+- ADR 0008 (paid data) → *Accepted; execution deferred per cost-
+  consciousness review* with explicit Polygon/EODHD trigger criteria.
+
+Built:
+- `configs/universe/snapshot_sp500_2026_05_14.csv` — 503 SP500 names
+  from the datahub.io github source (Wikipedia blocks scripted
+  scrapes by default).
+- Backfilled yfinance OHLCV for the SP500 universe over 2018-2025
+  (~1M rows; faster than expected, ~15 min wall-clock).
+- `src/supertrader/signals/technical/{momentum,reversal,
+  volume_surge}.py` — three signal modules + tests (19 new unit
+  tests + 6 lookahead-regression tests).
+- Three v2 configs: `v2_tech_momentum`, `v2_tech_reversal`,
+  `v2_tech_volume_surge`.
+- Per-config `snapshot_path` support added to `UniverseConfig` with a
+  `field_validator(mode="before")` to coerce str→Path (Pydantic
+  strict mode otherwise rejects the YAML string).
+
+Results — all three negative:
+
+  | signal       | TRAIN Sharpe | TEST Sharpe | TEST IR vs SPY | Turnover |
+  | momentum     | -0.06        | -0.89       | -1.76          | 13×      |
+  | reversal     | -2.05        | -3.01       | -2.90          | 219×     |
+  | volume_surge | -0.67        | +0.89       | -0.38          | 165×     |
+
+Volume surge's +0.89 test Sharpe is the best of the three but
+exhibits the same anti-generalization pattern from rsm_v1 (negative
+train) and an IR vs SPY of -0.38 (underperforms the benchmark). Plus
+N=7 bonferroni → Sharpe > ~1.6 threshold, which nothing clears.
+
+Decision: no holdout touch, no cost-sensitivity sweeps, no paid-data
+subscription. Documented in `docs/verdicts/v2-tech-comparison.md`
+and `docs/postmortem/v2-tech.md`. README status table updated.
+
+The framework's third independent verdict cycle (v2 tech ÷ 3
+signals) ran without architectural changes — discipline machinery
+worked correctly end-to-end. Framework is at this point the
+project's primary deliverable.
