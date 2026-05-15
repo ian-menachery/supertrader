@@ -225,3 +225,52 @@ ignoring it would have cost real time or produced a wrong conclusion.
 - **A negative result is a real result.** Document the postmortem; don't
   bury it. The point of strict discipline is so you can publish negative
   results with the same confidence as positive ones.
+
+## Lessons learned (v2 tech cycle + platform-honesty pass)
+
+Added 2026-05-14 after the v2 cycle landed three more null results and
+the user pushback caught a discipline failure mode in the proposed
+"option list" of next steps.
+
+- **After a null result, the move is not "improve the signal" — it's
+  "improve the platform and switch strategy class."** Iterating on a
+  failed signal is the failure mode HoldoutGuard's psychological
+  purpose was built to prevent. Every degree of freedom spent tuning
+  a signal against the same data shrinks the eventual holdout's
+  meaning. The right response to a sequence of nulls is to lock in
+  the lessons, ship platform improvements that apply to *every*
+  future strategy, and switch strategy class entirely when data
+  becomes available.
+
+- **Annualized turnover above ~100× should be a config-level error
+  or smoothed away by `max_turnover_annual` / `smoothing_alpha`** —
+  never a silent number on a tear sheet. `MeanReversionStrategy`
+  has both knobs as of the platform-honesty pass; use them on any
+  new strategy whose signal could produce day-to-day churn (most
+  cross-sectional rankers).
+
+- **Cost-model reproducibility requires explicit
+  `costs.model_version` pins.** All rsm_v1 + v2-tech configs pin
+  `model_version: v1` to keep their historical metrics bit-for-bit
+  reproducible. New configs default to `model_version: v2` (stricter
+  half-spread). If you're re-running a historical config and the
+  metrics differ, check that the pin is present.
+
+- **The cross-sectional ranker filters NaN-price tickers per date.**
+  Per the platform-honesty pass's universe-guard (P4 + ADR 0012):
+  a ticker with NaN price on date T is excluded from that day's
+  ranking cross-section entirely. This was a real leakage fix on
+  StaticUniverse runs; it's load-bearing for PITUniverse runs once
+  EODHD is wired. Don't undo it.
+
+- **Multi-comparison discipline is binding.** Cumulative test-set
+  peek count carries across cycles per ADR 0005. The current N = 7
+  implies a Sharpe threshold of ~1.6 to clear noise on a 1-year
+  test. Any new strategy variant on the same universe + window
+  inherits this bar; budget peeks like budget money.
+
+- **"Headline-positive but train-negative" is anti-generalization,
+  not opportunity.** rsm_v1 and volume_surge both had this shape.
+  Both were noise-grade. If you ever see this pattern again on a new
+  strategy, the discipline is to write the postmortem and switch
+  strategy class — not to chase the apparent test-window edge.

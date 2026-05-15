@@ -10,8 +10,10 @@ strategies are config files plus a small `Strategy` subclass.
 
 ## Status
 
-Two research cycles complete. Framework is the deliverable; strategies
-tested so far are documented null results.
+Two research cycles complete + a platform-honesty pass. Framework is
+the deliverable; strategies tested so far are four documented null
+results. **For a single-document read of the project, see
+[`docs/retrospective.md`](docs/retrospective.md).**
 
 | Phase | Status |
 | ----- | ------ |
@@ -21,6 +23,7 @@ tested so far are documented null results.
 | HTML tear sheet + `RunManifest` reproducibility ledger + SPY benchmark | done |
 | **Cycle 1: rsm_v1** Reddit-sentiment mean-reversion | done — negative verdict |
 | **Cycle 2: v2 tech** momentum / reversal / volume surge on SP500 | done — three negative verdicts |
+| **Platform-honesty pass** turnover cap + smoothing + cost-model v2 + universe-guard | done |
 | Paid data (Polygon / EODHD) | deferred per ADR 0008 |
 | Paper trading via Alpaca, Form 4 integration | future, pending a working strategy |
 
@@ -45,6 +48,8 @@ Per ADR 0005's bonferroni accounting, the running test-peek count
 multi-comparison noise. No strategy has cleared it.
 
 Full reasoning:
+- [**Retrospective**](docs/retrospective.md) — single-document read
+  spanning both cycles + the platform-honesty pass.
 - [v1 verdict](docs/verdicts/rsm-v1-backtest.md) — initial rsm_v1
   read.
 - [v1 postmortem](docs/postmortem/rsm-v1.md) — considered analysis
@@ -56,7 +61,7 @@ Full reasoning:
 - [Known limitations](docs/known-limitations.md) — eight ranked
   caveats that bound any result here.
 
-340+ tests, ~94% line coverage, mypy `--strict` clean, import-linter
+400+ tests, ~90% line coverage, mypy `--strict` clean, import-linter
 enforced layer boundaries.
 
 ## Architecture

@@ -169,3 +169,62 @@ The framework's third independent verdict cycle (v2 tech ÷ 3
 signals) ran without architectural changes — discipline machinery
 worked correctly end-to-end. Framework is at this point the
 project's primary deliverable.
+
+## 2026-05-14 — platform-honesty pass + project lock-in
+
+After cycle 2 closed with three more null results, the user pushed
+back hard on "what to improve in the signals" framing: iterating on
+failed signals is the discipline failure mode HoldoutGuard exists to
+prevent. The right move is platform-level improvements that apply to
+every future strategy without burning peeks, then lock in the
+lessons.
+
+Shipped this session, zero new test-set peeks consumed:
+
+- **P4 — universe-guard:** `MeanReversionStrategy` now filters NaN-
+  price tickers from each day's ranking cross-section. The
+  cross-section is no longer silently contaminated by tickers
+  outside the tradeable universe on that date. The fix surfaces a
+  real leakage: existing rsm_v1_q1_2024 re-runs produce slightly
+  different numbers (~1% drift on Sharpe) because the NaN-price
+  exclusion changes the rank distribution.
+- **P1 — `max_turnover_annual`:** opt-in cap on per-day turnover.
+  Soft-clip per the plan. Prevents future strategies from producing
+  silently-absurd turnover (v2 reversal hit 219×).
+- **P2 — `smoothing_alpha`:** EMA on weights, default 1.0 (no-op).
+  Lower alpha forces signals to persist before driving trades.
+- **P3 — cost model v2 (ADR 0010):** `costs.model_version` field
+  with v1/v2 dispatch. v1 keeps `slippage_bps_base` (3 bps default).
+  v2 uses `half_spread_bps` (5 bps default, stricter). Engine wired
+  via new `flat_slippage_fraction` helper; the existing
+  per-cell impact path in `slippage.py` is reserved for v2.1 once
+  ADV data flows through.
+- **P5 — historical config pins:** all rsm_v1 + v2-tech +
+  smoke configs explicitly set `costs.model_version: v1` so their
+  numbers stay reproducible under the new code path.
+- **W1 — `docs/retrospective.md`:** single-document arc of the
+  project. README links to it at the top of the status section.
+- **W2 — README:** status table flips to include the platform-
+  honesty pass; "for a single-document read see retrospective."
+- **W3 — CLAUDE.md lessons:** six new rules codified from this
+  cycle, including the "iterating on a failed signal is the
+  discipline failure mode" rule that triggered this whole pass.
+
+Tests: 400 passing / 1 skipped. ruff / ruff-format / mypy --strict /
+import-linter all green.
+
+State at session close:
+- N = 7 cumulative test-set peeks. Bonferroni threshold ~Sharpe 1.6.
+- All four holdouts untouched.
+- Four documented null results, each with verdict + postmortem.
+- Platform now has explicit turnover cap, weight smoothing, v2 cost
+  model, universe-guard, and a project-wide retrospective.
+- No paid data subscribed; ADR 0008 trigger criteria not met.
+
+Next research cycle (no concrete date) should:
+- Start with `model_version: v2` (default).
+- Cite N = 7 as the carried bonferroni cost.
+- Either activate paid data (Polygon/EODHD per ADR 0008) or open a
+  redline-backfill plan (Form 4) — not both simultaneously.
+- Read this retrospective + CLAUDE.md lessons before designing the
+  first config.
